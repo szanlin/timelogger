@@ -3,6 +3,7 @@ package com.y3lc.timelogger.data.repository
 import com.y3lc.timelogger.data.local.ActivitySessionEntity
 import com.y3lc.timelogger.data.local.ActivityTypeEntity
 import com.y3lc.timelogger.data.local.TimeLoggerDatabase
+import com.y3lc.timelogger.data.missingDefaultActivityTypes
 import com.y3lc.timelogger.domain.model.ActivitySession
 import com.y3lc.timelogger.domain.model.ActivityType
 import java.time.Instant
@@ -11,6 +12,16 @@ import java.util.concurrent.Callable
 class RoomActivityRepository(private val database: TimeLoggerDatabase) : ActivityRepository {
     private val activityTypeDao = database.activityTypeDao()
     private val activitySessionDao = database.activitySessionDao()
+
+    fun seedDefaultActivityTypes(now: Instant) {
+        database.runInTransaction {
+            missingDefaultActivityTypes(activityTypeDao.getAll(), now).forEach(activityTypeDao::insert)
+        }
+    }
+
+    fun getActivityTypes(): List<ActivityType> = activityTypeDao.getAll().map { it.toDomain() }
+
+    fun getActiveSessions(): List<ActivitySession> = activitySessionDao.getActiveSessions().map { it.toDomain() }
 
     override fun getActivityTypeById(id: String): ActivityType? =
         activityTypeDao.getById(id)?.toDomain()

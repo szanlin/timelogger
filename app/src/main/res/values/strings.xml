@@ -1,4 +1,3 @@
 <resources>
     <string name="app_name">TimeLogger</string>
-    <string name="core_status_message">活动记录核心能力已建立\n记录界面将在后续版本提供</string>
 </resources>
