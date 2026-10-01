@@ -17,10 +17,14 @@ class StopActivitySessionUseCase(private val repository: ActivityRepository) {
         repository.inTransaction {
             val session = repository.getActiveSessionByTypeId(activityTypeId)
                 ?: return@inTransaction StopActivitySessionResult.NotActive
-            if (!nowUtc.isAfter(session.startedAtUtc)) {
+            val nowUtcMillis = nowUtc.toEpochMilli()
+            if (nowUtcMillis <= session.startedAtUtc.toEpochMilli()) {
                 return@inTransaction StopActivitySessionResult.InvalidEndTime
             }
-            check(repository.endSession(session.id, nowUtc)) { "Active session disappeared" }
-            StopActivitySessionResult.Stopped(session.copy(endedAtUtc = nowUtc, updatedAtUtc = nowUtc))
+            val persistedNowUtc = Instant.ofEpochMilli(nowUtcMillis)
+            check(repository.endSession(session.id, persistedNowUtc)) { "Active session disappeared" }
+            StopActivitySessionResult.Stopped(
+                session.copy(endedAtUtc = persistedNowUtc, updatedAtUtc = persistedNowUtc),
+            )
         }
 }

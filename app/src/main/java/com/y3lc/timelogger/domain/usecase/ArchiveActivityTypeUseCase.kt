@@ -21,13 +21,17 @@ class ArchiveActivityTypeUseCase(private val repository: ActivityRepository) {
             if (activityType.isArchived) return@inTransaction ArchiveActivityTypeResult.AlreadyArchived
 
             val activeSession = repository.getActiveSessionByTypeId(activityTypeId)
+            val nowUtcMillis = nowUtc.toEpochMilli()
+            val persistedNowUtc = Instant.ofEpochMilli(nowUtcMillis)
             if (activeSession != null) {
-                if (!nowUtc.isAfter(activeSession.startedAtUtc)) {
+                if (nowUtcMillis <= activeSession.startedAtUtc.toEpochMilli()) {
                     return@inTransaction ArchiveActivityTypeResult.InvalidEndTime
                 }
-                check(repository.endSession(activeSession.id, nowUtc)) { "Active session disappeared" }
+                check(repository.endSession(activeSession.id, persistedNowUtc)) { "Active session disappeared" }
             }
-            check(repository.archiveActivityType(activityTypeId, nowUtc)) { "Activity type disappeared" }
+            check(repository.archiveActivityType(activityTypeId, persistedNowUtc)) {
+                "Activity type disappeared"
+            }
             ArchiveActivityTypeResult.Archived
         }
 }

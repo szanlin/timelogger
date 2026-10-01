@@ -32,15 +32,16 @@ class StartActivitySessionUseCase(
             return@inTransaction StartActivitySessionResult.AlreadyActive
         }
 
+        val persistedNowUtc = Instant.ofEpochMilli(nowUtc.toEpochMilli())
         val session = ActivitySession(
             id = createSessionId(),
             activityTypeId = activityTypeId,
-            startedAtUtc = nowUtc,
+            startedAtUtc = persistedNowUtc,
             endedAtUtc = null,
             note = null,
             sourceZoneId = sourceZoneId.id,
-            createdAtUtc = nowUtc,
-            updatedAtUtc = nowUtc,
+            createdAtUtc = persistedNowUtc,
+            updatedAtUtc = persistedNowUtc,
         )
         repository.insertSession(session)
         StartActivitySessionResult.Started(session)

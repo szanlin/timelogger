@@ -54,6 +54,25 @@ class ActivitySessionUseCaseTest {
     }
 
     @Test
+    fun startStoresAndReturnsWholeUtcMilliseconds() {
+        val repository = FakeActivityRepository().apply {
+            types["work"] = activityType("work")
+        }
+
+        val result = StartActivitySessionUseCase(repository) { "working" }(
+            "work",
+            startedAtUtc.plusNanos(123_456_789),
+            sourceZoneId,
+        )
+
+        assertEquals(
+            startedAtUtc.plusMillis(123),
+            (result as StartActivitySessionResult.Started).session.startedAtUtc,
+        )
+        assertEquals(startedAtUtc.plusMillis(123), repository.sessions["working"]?.createdAtUtc)
+    }
+
+    @Test
     fun stopUsesSuppliedTimeAndLeavesOtherTypeRunning() {
         val repository = FakeActivityRepository().apply {
             types["work"] = activityType("work")
@@ -80,6 +99,34 @@ class ActivitySessionUseCaseTest {
 
         assertEquals(StopActivitySessionResult.InvalidEndTime, result)
         assertNull(repository.sessions["working"]?.endedAtUtc)
+    }
+
+    @Test
+    fun stopRejectsEndTimeWithinStartMillisecondWithoutWriting() {
+        val repository = FakeActivityRepository().apply {
+            sessions["working"] = activeSession("working", "work")
+        }
+
+        val result = StopActivitySessionUseCase(repository)("work", startedAtUtc.plusNanos(999_999))
+
+        assertEquals(StopActivitySessionResult.InvalidEndTime, result)
+        assertNull(repository.sessions["working"]?.endedAtUtc)
+        assertTrue(repository.events.isEmpty())
+    }
+
+    @Test
+    fun stopPersistsAndReturnsWholeUtcMilliseconds() {
+        val repository = FakeActivityRepository().apply {
+            sessions["working"] = activeSession("working", "work")
+        }
+
+        val result = StopActivitySessionUseCase(repository)("work", stoppedAtUtc.plusNanos(987_654))
+
+        assertEquals(
+            stoppedAtUtc,
+            (result as StopActivitySessionResult.Stopped).session.endedAtUtc,
+        )
+        assertEquals(stoppedAtUtc, repository.sessions["working"]?.endedAtUtc)
     }
 
     @Test
@@ -121,6 +168,35 @@ class ActivitySessionUseCaseTest {
             assertNull(repository.sessions["working"]?.endedAtUtc)
             assertFalse(repository.types["work"]?.isArchived ?: true)
         }
+    }
+
+    @Test
+    fun archiveRejectsEndTimeWithinStartMillisecondWithoutWriting() {
+        val repository = FakeActivityRepository().apply {
+            types["work"] = activityType("work")
+            sessions["working"] = activeSession("working", "work")
+        }
+
+        val result = ArchiveActivityTypeUseCase(repository)("work", startedAtUtc.plusNanos(999_999))
+
+        assertEquals(ArchiveActivityTypeResult.InvalidEndTime, result)
+        assertNull(repository.sessions["working"]?.endedAtUtc)
+        assertFalse(repository.types["work"]?.isArchived ?: true)
+        assertTrue(repository.events.isEmpty())
+    }
+
+    @Test
+    fun archivePersistsWholeUtcMilliseconds() {
+        val repository = FakeActivityRepository().apply {
+            types["work"] = activityType("work")
+            sessions["working"] = activeSession("working", "work")
+        }
+
+        val result = ArchiveActivityTypeUseCase(repository)("work", stoppedAtUtc.plusNanos(987_654))
+
+        assertEquals(ArchiveActivityTypeResult.Archived, result)
+        assertEquals(stoppedAtUtc, repository.sessions["working"]?.endedAtUtc)
+        assertEquals(stoppedAtUtc, repository.types["work"]?.updatedAtUtc)
     }
 
     private fun activityType(id: String, isArchived: Boolean = false): ActivityType = ActivityType(
