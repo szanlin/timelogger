@@ -1,6 +1,7 @@
 package com.y3lc.timelogger
 
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.assertContentDescriptionContains
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
@@ -27,7 +28,9 @@ class MainActivityTest {
         }
         composeTestRule.onNodeWithTag("settings-zone-current").assertTextEquals("America/New_York")
         composeTestRule.onNodeWithTag("settings-week-sunday").performClick()
-        composeTestRule.onNodeWithTag("settings-week-sunday").assertExists()
+        composeTestRule.waitUntil(5_000) {
+            runCatching { composeTestRule.onNodeWithTag("settings-week-sunday").assertIsSelected() }.isSuccess
+        }
     }
 
     @Test
