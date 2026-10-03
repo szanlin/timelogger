@@ -30,6 +30,8 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+data class TypeSaveResult(val writeCompleted: Boolean, val errorMessage: String?)
+
 class TimeLoggerViewModel(
     private val openDatabase: () -> TimeLoggerDatabase,
     private val settingsStore: SettingsStore,
@@ -90,9 +92,9 @@ class TimeLoggerViewModel(
         }
     }
 
-    fun createActivityType(name: String, iconKey: String, colorArgb: Long, onResult: (String?) -> Unit = {}) {
+    fun createActivityType(name: String, iconKey: String, colorArgb: Long, onResult: (TypeSaveResult) -> Unit = {}) {
         val normalized = validateActivityType(name, iconKey) ?: run {
-            onResult("请输入类型名称并选择图标")
+            onResult(TypeSaveResult(false, "请输入类型名称并选择图标"))
             return
         }
         val id = UUID.randomUUID().toString()
@@ -105,9 +107,9 @@ class TimeLoggerViewModel(
         }
     }
 
-    fun updateActivityType(id: String, name: String, iconKey: String, colorArgb: Long, onResult: (String?) -> Unit = {}) {
+    fun updateActivityType(id: String, name: String, iconKey: String, colorArgb: Long, onResult: (TypeSaveResult) -> Unit = {}) {
         val normalized = validateActivityType(name, iconKey) ?: run {
-            onResult("请输入类型名称并选择图标")
+            onResult(TypeSaveResult(false, "请输入类型名称并选择图标"))
             return
         }
         runOperation("类型未能更新，请重试", onResult) { repository ->
@@ -208,9 +210,9 @@ class TimeLoggerViewModel(
         runOperation(errorMessage, {}, operation)
     }
 
-    private fun runOperation(errorMessage: String, onResult: (String?) -> Unit, operation: ((RoomActivityRepository) -> Unit)?) {
+    private fun runOperation(errorMessage: String, onResult: (TypeSaveResult) -> Unit, operation: ((RoomActivityRepository) -> Unit)?) {
         if (uiState.value.isSaving) {
-            onResult("正在保存，请稍候")
+            onResult(TypeSaveResult(false, "正在保存，请稍候"))
             return
         }
         mutableUiState.update { it.copy(isSaving = true) }
@@ -243,7 +245,7 @@ class TimeLoggerViewModel(
             } finally {
                 mutableUiState.update { it.copy(isSaving = false) }
             }
-            onResult(resultError)
+            onResult(TypeSaveResult(operationCompleted, resultError))
         }
     }
 

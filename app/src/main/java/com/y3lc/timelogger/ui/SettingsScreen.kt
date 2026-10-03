@@ -56,8 +56,8 @@ fun SettingsScreen(
     state: TimeLoggerUiState,
     onZoneSaved: (String?) -> Unit,
     onWeekStartChanged: (DayOfWeek) -> Unit,
-    onTypeCreated: (String, String, Long, (String?) -> Unit) -> Unit,
-    onTypeUpdated: (String, String, String, Long, (String?) -> Unit) -> Unit,
+    onTypeCreated: (String, String, Long, (TypeSaveResult) -> Unit) -> Unit,
+    onTypeUpdated: (String, String, String, Long, (TypeSaveResult) -> Unit) -> Unit,
     onTypeMoved: (String, Int) -> Unit,
     onTypeArchived: (String) -> Unit,
     modifier: Modifier = Modifier,
@@ -199,7 +199,7 @@ fun SettingsScreen(
 }
 
 @Composable
-private fun TypeEditorDialog(type: ActivityTypeItem?, enabled: Boolean, onDismiss: () -> Unit, onSave: (String, String, Long, (String?) -> Unit) -> Unit) {
+private fun TypeEditorDialog(type: ActivityTypeItem?, enabled: Boolean, onDismiss: () -> Unit, onSave: (String, String, Long, (TypeSaveResult) -> Unit) -> Unit) {
     var name by remember(type?.id) { mutableStateOf(type?.name.orEmpty()) }
     var iconKey by remember(type?.id) { mutableStateOf(type?.iconKey ?: "meeting") }
     var colorArgb by remember(type?.id) { mutableStateOf(type?.colorArgb ?: typeColors.first()) }
@@ -257,9 +257,9 @@ private fun TypeEditorDialog(type: ActivityTypeItem?, enabled: Boolean, onDismis
         confirmButton = {
             TextButton(onClick = {
                 saveError = null
-                onSave(name, iconKey, colorArgb) { error ->
-                    saveError = error
-                    if (error == null) onDismiss()
+                onSave(name, iconKey, colorArgb) { result ->
+                    saveError = result.errorMessage
+                    if (result.writeCompleted) onDismiss()
                 }
             }, enabled = enabled && name.isNotBlank(), modifier = Modifier.testTag("type-save")) { Text("保存") }
         },

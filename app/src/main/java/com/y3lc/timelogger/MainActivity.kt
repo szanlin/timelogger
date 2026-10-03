@@ -30,6 +30,7 @@ import androidx.lifecycle.repeatOnLifecycle
 import com.y3lc.timelogger.ui.MainTab
 import com.y3lc.timelogger.ui.TimeLoggerUiState
 import com.y3lc.timelogger.ui.TimeLoggerViewModel
+import com.y3lc.timelogger.ui.TypeSaveResult
 import com.y3lc.timelogger.ui.RecordScreen
 import com.y3lc.timelogger.ui.StatisticsScreen
 import com.y3lc.timelogger.ui.StatisticsRange
@@ -89,8 +90,8 @@ private fun TimeLoggerApp(
     onRetry: () -> Unit,
     onZoneSaved: (String?) -> Unit,
     onWeekStartChanged: (DayOfWeek) -> Unit,
-    onTypeCreated: (String, String, Long, (String?) -> Unit) -> Unit,
-    onTypeUpdated: (String, String, String, Long, (String?) -> Unit) -> Unit,
+    onTypeCreated: (String, String, Long, (TypeSaveResult) -> Unit) -> Unit,
+    onTypeUpdated: (String, String, String, Long, (TypeSaveResult) -> Unit) -> Unit,
     onTypeMoved: (String, Int) -> Unit,
     onTypeArchived: (String) -> Unit,
     onSessionSaved: (SessionTimeEdit, (String?) -> Unit) -> Unit,
@@ -131,8 +132,8 @@ private fun MainScreen(
     onRetry: () -> Unit,
     onZoneSaved: (String?) -> Unit,
     onWeekStartChanged: (DayOfWeek) -> Unit,
-    onTypeCreated: (String, String, Long, (String?) -> Unit) -> Unit,
-    onTypeUpdated: (String, String, String, Long, (String?) -> Unit) -> Unit,
+    onTypeCreated: (String, String, Long, (TypeSaveResult) -> Unit) -> Unit,
+    onTypeUpdated: (String, String, String, Long, (TypeSaveResult) -> Unit) -> Unit,
     onTypeMoved: (String, Int) -> Unit,
     onTypeArchived: (String) -> Unit,
     onSessionSaved: (SessionTimeEdit, (String?) -> Unit) -> Unit,

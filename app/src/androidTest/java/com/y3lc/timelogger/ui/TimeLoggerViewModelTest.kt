@@ -64,6 +64,54 @@ class TimeLoggerViewModelTest {
     }
 
     @Test
+    fun committedCreateRefreshFailureClosesDraftSoUserRetryDoesNotInsertAgain() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val context = instrumentation.targetContext
+        val databaseName = "committed-create-refresh-test.db"
+        context.deleteDatabase(databaseName)
+        val database = TimeLoggerDatabase.open(context, databaseName)
+        val settings = FailingReadSettingsStore()
+        val store = ViewModelStore()
+        lateinit var viewModel: TimeLoggerViewModel
+        instrumentation.runOnMainSync {
+            viewModel = TimeLoggerViewModel({ database }, settings)
+            store.put("test", viewModel)
+        }
+        try {
+            awaitState { !viewModel.uiState.value.isSaving }
+            settings.failReads = true
+            val firstSave = CountDownLatch(1)
+            var editorResult: TypeSaveResult? = null
+            instrumentation.runOnMainSync {
+                viewModel.createActivityType("阅读", "meeting", 0xFF112233) { result ->
+                    editorResult = result
+                    firstSave.countDown()
+                }
+            }
+            assertTrue(firstSave.await(5, TimeUnit.SECONDS))
+            assertEquals(1, database.activityTypeDao().getAll().count { it.name == "阅读" })
+            assertEquals("无法刷新记录，请重试", viewModel.uiState.value.errorMessage)
+            assertEquals("无法刷新记录，请重试", editorResult!!.errorMessage)
+
+            // 模拟对话框按结果决定保留草稿或关闭，再执行用户可见的恢复操作。
+            settings.failReads = false
+            if (!editorResult!!.writeCompleted) {
+                instrumentation.runOnMainSync { viewModel.createActivityType("阅读", "meeting", 0xFF112233) }
+                awaitState { !viewModel.uiState.value.isSaving }
+            } else {
+                instrumentation.runOnMainSync { viewModel.refresh() }
+                awaitState { !viewModel.uiState.value.isSaving }
+            }
+            assertEquals(1, database.activityTypeDao().getAll().count { it.name == "阅读" })
+            assertTrue(editorResult!!.writeCompleted)
+            assertNull(viewModel.uiState.value.errorMessage)
+        } finally {
+            instrumentation.runOnMainSync { store.clear() }
+            context.deleteDatabase(databaseName)
+        }
+    }
+
+    @Test
     fun retryAfterMoveRefreshFailureDoesNotMoveTwice() {
         verifyRefreshRetry(
             operation = { it.moveActivityType("sleep", 1) },
