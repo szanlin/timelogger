@@ -24,4 +24,7 @@ interface ActivitySessionDao {
 
     @Query("UPDATE activity_sessions SET endedAtUtc = :endedAtUtc, updatedAtUtc = :updatedAtUtc WHERE id = :id AND endedAtUtc IS NULL")
     fun endSession(id: String, endedAtUtc: Instant, updatedAtUtc: Instant): Int
+
+    @Query("UPDATE activity_sessions SET startedAtUtc = :startedAtUtc, endedAtUtc = :endedAtUtc, updatedAtUtc = :updatedAtUtc WHERE id = :id AND endedAtUtc IS NOT NULL")
+    fun updateClosedSession(id: String, startedAtUtc: Instant, endedAtUtc: Instant, updatedAtUtc: Instant): Int
 }

@@ -11,11 +11,47 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.DayOfWeek
 import java.time.ZoneId
+import java.time.Instant
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 
 class TimeLoggerViewModelTest {
+    @Test
+    fun editReportsPendingLoadFailureInsteadOfIgnoringSave() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val context = instrumentation.targetContext
+        val name = "history-pending-load-test.db"
+        context.deleteDatabase(name)
+        val database = TimeLoggerDatabase.open(context, name)
+        val settings = FailingReadSettingsStore()
+        val store = ViewModelStore()
+        lateinit var viewModel: TimeLoggerViewModel
+        instrumentation.runOnMainSync {
+            viewModel = TimeLoggerViewModel({ database }, settings)
+            store.put("test", viewModel)
+        }
+        try {
+            awaitState { !viewModel.uiState.value.isSaving }
+            settings.failReads = true
+            instrumentation.runOnMainSync { viewModel.refresh() }
+            awaitState { !viewModel.uiState.value.isSaving }
+            val callback = CountDownLatch(1)
+            var editError: String? = null
+            instrumentation.runOnMainSync {
+                viewModel.saveSessionTimes(SessionTimeEdit("history", Instant.EPOCH, Instant.EPOCH.plusSeconds(1))) { error ->
+                    editError = error
+                    callback.countDown()
+                }
+            }
+            assertTrue("保存必须返回可理解的失败提示", callback.await(1, TimeUnit.SECONDS))
+            assertNotNull(editError)
+        } finally {
+            instrumentation.runOnMainSync { store.clear() }
+            context.deleteDatabase(name)
+        }
+    }
+
     @Test
     fun retryAfterCreateRefreshFailureDoesNotInsertAgain() {
         verifyRefreshRetry(

@@ -35,6 +35,10 @@ data class TypeRanking(val typeId: String, val name: String, val colorArgb: Long
 
 data class TimelineItem(val sessionId: String, val name: String, val colorArgb: Long, val interval: UtcInterval, val isRunning: Boolean)
 
+data class HistorySessionItem(val id: String, val name: String, val startedAtUtc: Instant, val endedAtUtc: Instant)
+
+data class SessionTimeEdit(val id: String, val startedAtUtc: Instant, val endedAtUtc: Instant)
+
 data class DailyBreakdown(
     val date: LocalDate,
     val coverageDuration: Duration,
@@ -60,6 +64,7 @@ data class TimeLoggerUiState(
     val fixedStatisticsZoneId: String? = null,
     val firstDayOfWeek: DayOfWeek = DayOfWeek.MONDAY,
     val managedActivityTypes: List<ActivityTypeItem> = emptyList(),
+    val historySessions: List<HistorySessionItem> = emptyList(),
     val isLoading: Boolean = true,
     val errorMessage: String? = null,
     val isSaving: Boolean = false,

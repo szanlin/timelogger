@@ -17,6 +17,37 @@ class ActivitySessionUseCaseTest {
     private val sourceZoneId = ZoneId.of("Asia/Shanghai")
 
     @Test
+    fun editChangesOnlyClosedSessionTimesAndPreservesAuditFields() {
+        val original = activeSession("history", "work").copy(endedAtUtc = stoppedAtUtc, note = "备注")
+        val repository = FakeActivityRepository().apply {
+            sessions["history"] = original
+            sessions["running"] = activeSession("running", "walk")
+        }
+        val result = EditActivitySessionUseCase(repository)("history", startedAtUtc.minusSeconds(60), stoppedAtUtc.plusSeconds(60), stoppedAtUtc.plusSeconds(120))
+
+        assertTrue(result is EditActivitySessionResult.Updated)
+        assertEquals(original.copy(startedAtUtc = startedAtUtc.minusSeconds(60), endedAtUtc = stoppedAtUtc.plusSeconds(60), updatedAtUtc = stoppedAtUtc.plusSeconds(120)), repository.sessions["history"])
+        assertNull(repository.sessions["running"]?.endedAtUtc)
+    }
+
+    @Test
+    fun editRejectsMissingRunningAndNonpositiveMillisecondIntervals() {
+        val original = activeSession("history", "work").copy(endedAtUtc = stoppedAtUtc)
+        val repository = FakeActivityRepository().apply {
+            sessions["history"] = original
+            sessions["running"] = activeSession("running", "walk")
+        }
+        val edit = EditActivitySessionUseCase(repository)
+        assertEquals(EditActivitySessionResult.NotFound, edit("missing", startedAtUtc, stoppedAtUtc, stoppedAtUtc))
+        assertEquals(EditActivitySessionResult.StillRunning, edit("running", startedAtUtc, stoppedAtUtc, stoppedAtUtc))
+        for (end in listOf(startedAtUtc.minusSeconds(1), startedAtUtc, startedAtUtc.plusNanos(999_999))) {
+            assertEquals(EditActivitySessionResult.InvalidEndTime, edit("history", startedAtUtc, end, stoppedAtUtc))
+        }
+        assertEquals(original, repository.sessions["history"])
+        assertTrue(repository.events.isEmpty())
+    }
+
+    @Test
     fun startRejectsArchivedType() {
         val repository = FakeActivityRepository().apply {
             types["work"] = activityType("work", isArchived = true)
@@ -228,6 +259,16 @@ class ActivitySessionUseCaseTest {
         var failArchive = false
 
         override fun getActivityTypeById(id: String): ActivityType? = types[id]
+
+        override fun getSessionById(id: String): ActivitySession? = sessions[id]
+
+        override fun updateClosedSession(id: String, startedAtUtc: Instant, endedAtUtc: Instant, updatedAtUtc: Instant): Boolean {
+            val existing = sessions[id] ?: return false
+            if (existing.endedAtUtc == null) return false
+            sessions[id] = existing.copy(startedAtUtc = startedAtUtc, endedAtUtc = endedAtUtc, updatedAtUtc = updatedAtUtc)
+            events += "edit:$id"
+            return true
+        }
 
         override fun getActiveSessionByTypeId(activityTypeId: String): ActivitySession? =
             sessions.values.firstOrNull { it.activityTypeId == activityTypeId && it.endedAtUtc == null }

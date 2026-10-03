@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -21,6 +22,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -33,6 +35,7 @@ import com.y3lc.timelogger.ui.RecordScreen
 import com.y3lc.timelogger.ui.StatisticsScreen
 import com.y3lc.timelogger.ui.StatisticsRange
 import com.y3lc.timelogger.ui.SettingsScreen
+import com.y3lc.timelogger.ui.SessionTimeEdit
 import java.time.DayOfWeek
 import kotlinx.coroutines.delay
 
@@ -69,6 +72,7 @@ class MainActivity : ComponentActivity() {
                     viewModel::updateActivityType,
                     viewModel::moveActivityType,
                     viewModel::archiveActivityType,
+                    viewModel::saveSessionTimes,
                 )
             }
         }
@@ -88,6 +92,7 @@ private fun TimeLoggerApp(
     onTypeUpdated: (String, String, String, Long) -> Unit,
     onTypeMoved: (String, Int) -> Unit,
     onTypeArchived: (String) -> Unit,
+    onSessionSaved: (SessionTimeEdit, (String?) -> Unit) -> Unit,
 ) {
     Scaffold(
         bottomBar = {
@@ -96,7 +101,7 @@ private fun TimeLoggerApp(
                     NavigationBarItem(
                         selected = uiState.selectedTab == tab,
                         onClick = { onTabSelected(tab) },
-                        icon = { Text(tab.label.take(1)) },
+                        icon = { Icon(painterResource(tabIcon(tab)), contentDescription = tab.label) },
                         label = { Text(tab.label) },
                         modifier = Modifier.testTag("nav-${tab.name.lowercase()}"),
                     )
@@ -104,8 +109,14 @@ private fun TimeLoggerApp(
             }
         },
     ) { padding ->
-        MainScreen(uiState, padding, onToggle, onRangeSelected, onRetry, onZoneSaved, onWeekStartChanged, onTypeCreated, onTypeUpdated, onTypeMoved, onTypeArchived)
+        MainScreen(uiState, padding, onToggle, onRangeSelected, onRetry, onZoneSaved, onWeekStartChanged, onTypeCreated, onTypeUpdated, onTypeMoved, onTypeArchived, onSessionSaved)
     }
+}
+
+private fun tabIcon(tab: MainTab): Int = when (tab) {
+    MainTab.RECORD -> R.drawable.ic_tab_record
+    MainTab.STATISTICS -> R.drawable.ic_tab_statistics
+    MainTab.SETTINGS -> R.drawable.ic_tab_settings
 }
 
 @Composable
@@ -121,6 +132,7 @@ private fun MainScreen(
     onTypeUpdated: (String, String, String, Long) -> Unit,
     onTypeMoved: (String, Int) -> Unit,
     onTypeArchived: (String) -> Unit,
+    onSessionSaved: (SessionTimeEdit, (String?) -> Unit) -> Unit,
 ) {
     Column(Modifier.fillMaxSize().padding(padding).padding(16.dp)) {
         Text(
@@ -137,7 +149,7 @@ private fun MainScreen(
         }
         if (!uiState.isLoading) {
             when (uiState.selectedTab) {
-                MainTab.RECORD -> RecordScreen(uiState, onToggle, Modifier.weight(1f).padding(top = 16.dp))
+                MainTab.RECORD -> RecordScreen(uiState, onToggle, onSessionSaved, Modifier.weight(1f).padding(top = 16.dp))
                 MainTab.STATISTICS -> StatisticsScreen(uiState, onRangeSelected, Modifier.weight(1f).padding(top = 16.dp))
                 MainTab.SETTINGS -> SettingsScreen(
                     uiState,

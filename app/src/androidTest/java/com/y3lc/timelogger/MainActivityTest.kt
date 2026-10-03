@@ -3,6 +3,8 @@ package com.y3lc.timelogger
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.assertTextEquals
+import androidx.compose.ui.test.assertTextContains
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertContentDescriptionContains
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
@@ -17,6 +19,7 @@ import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.test.platform.app.InstrumentationRegistry
 import com.y3lc.timelogger.ui.TimeLoggerViewModel
+import com.y3lc.timelogger.data.local.TimeLoggerDatabase
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -26,6 +29,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.ExternalResource
 import java.time.DayOfWeek
+import java.time.Instant
 
 class MainActivityTest {
     @get:Rule(order = 0)
@@ -200,5 +204,82 @@ class MainActivityTest {
 
         composeTestRule.onNodeWithTag("nav-record").performClick()
         composeTestRule.onNodeWithTag("screen-title").assertIsDisplayed().assertTextEquals("记录")
+    }
+
+    @Test
+    fun historyEditorRejectsMissingDstTimeAndSavesExplicitOverlapOffsets() {
+        composeTestRule.runOnUiThread { viewModel.saveStatisticsZone("America/New_York") }
+        awaitStableState()
+        composeTestRule.onNodeWithTag("activity-walk").performClick()
+        awaitStableState()
+        composeTestRule.onNodeWithTag("activity-walk").performClick()
+        awaitStableState()
+        composeTestRule.onNodeWithTag("record-list").performScrollToNode(androidx.compose.ui.test.hasTestTag("history-open"))
+        composeTestRule.onNodeWithTag("history-open").performClick()
+        composeTestRule.onNodeWithTag("history-edit-0").performClick()
+        composeTestRule.onNodeWithTag("session-start-input").performTextReplacement("2026-03-08 02:30:00")
+        composeTestRule.onNodeWithTag("session-start-error").assertTextEquals("此时刻因夏令时跳变不存在，请重新选择")
+        composeTestRule.onNodeWithTag("session-save").assertIsNotEnabled()
+        composeTestRule.onNodeWithTag("session-start-input").performTextReplacement("2026-11-01 01:30:00")
+        composeTestRule.onNodeWithTag("session-end-input").performTextReplacement("2026-11-01 01:15:00")
+        composeTestRule.onNodeWithTag("session-save").assertIsNotEnabled()
+        composeTestRule.onNodeWithTag("session-start-offset--04:00").performClick()
+        composeTestRule.onNodeWithTag("session-end-offset--05:00").performClick()
+        composeTestRule.onNodeWithTag("session-save").performClick()
+        awaitStableState()
+        assertEquals(Instant.parse("2026-11-01T05:30:00Z"), viewModel.uiState.value.historySessions.single().startedAtUtc)
+        assertEquals(Instant.parse("2026-11-01T06:15:00Z"), viewModel.uiState.value.historySessions.single().endedAtUtc)
+        composeTestRule.onNodeWithTag("history-edit-0").performClick()
+        composeTestRule.onNodeWithTag("session-start-input").assertTextContains("2026-11-01 01:30:00.000")
+        composeTestRule.onNodeWithTag("session-end-input").assertTextContains("2026-11-01 01:15:00.000")
+        composeTestRule.onNodeWithTag("session-start-offset--04:00").assertIsSelected()
+        composeTestRule.onNodeWithTag("session-end-offset--05:00").assertIsSelected()
+    }
+
+    @Test
+    fun historyEditorRejectsEndAtStartAndKeepsDraft() {
+        composeTestRule.onNodeWithTag("activity-walk").performClick()
+        awaitStableState()
+        composeTestRule.onNodeWithTag("activity-walk").performClick()
+        awaitStableState()
+        composeTestRule.onNodeWithTag("record-list").performScrollToNode(androidx.compose.ui.test.hasTestTag("history-open"))
+        composeTestRule.onNodeWithTag("history-open").performClick()
+        composeTestRule.onNodeWithTag("history-edit-0").performClick()
+        composeTestRule.onNodeWithTag("session-start-input").performTextReplacement("2026-01-01 10:00:00")
+        composeTestRule.onNodeWithTag("session-end-input").performTextReplacement("2026-01-01 10:00:00")
+        composeTestRule.onNodeWithTag("session-range-error").assertTextEquals("结束时间必须晚于开始时间")
+        composeTestRule.onNodeWithTag("session-save").assertIsNotEnabled()
+        composeTestRule.onNodeWithTag("session-start-input").assertTextContains("2026-01-01 10:00:00")
+    }
+
+    @Test
+    fun historyEditorRetainsDraftAfterDatabaseFailureAndCanRetry() {
+        composeTestRule.onNodeWithTag("activity-walk").performClick()
+        awaitStableState()
+        composeTestRule.onNodeWithTag("activity-walk").performClick()
+        awaitStableState()
+        val original = viewModel.uiState.value.historySessions.single()
+        val database = TimeLoggerDatabase.open(InstrumentationRegistry.getInstrumentation().targetContext)
+        try {
+            database.openHelper.writableDatabase.execSQL("CREATE TRIGGER reject_history_edit BEFORE UPDATE ON activity_sessions BEGIN SELECT RAISE(ABORT, '测试编辑失败'); END")
+            composeTestRule.onNodeWithTag("record-list").performScrollToNode(androidx.compose.ui.test.hasTestTag("history-open"))
+            composeTestRule.onNodeWithTag("history-open").performClick()
+            composeTestRule.onNodeWithTag("history-edit-0").performClick()
+            composeTestRule.onNodeWithTag("session-start-input").performTextReplacement("2026-01-01 10:00:00")
+            composeTestRule.onNodeWithTag("session-end-input").performTextReplacement("2026-01-01 11:00:00")
+            composeTestRule.onNodeWithTag("session-save").performClick()
+            awaitStableState()
+            composeTestRule.onNodeWithTag("session-save-error").assertExists()
+            composeTestRule.onNodeWithTag("session-start-input").assertTextContains("2026-01-01 10:00:00")
+            assertEquals(original, viewModel.uiState.value.historySessions.single())
+            database.openHelper.writableDatabase.execSQL("DROP TRIGGER reject_history_edit")
+            composeTestRule.onNodeWithTag("session-save").performClick()
+            awaitStableState()
+            composeTestRule.onNodeWithTag("history-edit-0").assertExists()
+            assertEquals(3600L, java.time.Duration.between(viewModel.uiState.value.historySessions.single().startedAtUtc, viewModel.uiState.value.historySessions.single().endedAtUtc).seconds)
+        } finally {
+            database.openHelper.writableDatabase.execSQL("DROP TRIGGER IF EXISTS reject_history_edit")
+            database.close()
+        }
     }
 }

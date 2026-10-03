@@ -14,6 +14,8 @@ import com.y3lc.timelogger.domain.usecase.StartActivitySessionUseCase
 import com.y3lc.timelogger.domain.usecase.StartActivitySessionResult
 import com.y3lc.timelogger.domain.usecase.StopActivitySessionUseCase
 import com.y3lc.timelogger.domain.usecase.StopActivitySessionResult
+import com.y3lc.timelogger.domain.usecase.EditActivitySessionUseCase
+import com.y3lc.timelogger.domain.usecase.EditActivitySessionResult
 import java.time.Duration
 import java.time.DayOfWeek
 import java.time.Instant
@@ -161,6 +163,41 @@ class TimeLoggerViewModel(
         }
     }
 
+    fun saveSessionTimes(edit: SessionTimeEdit, onResult: (String?) -> Unit) {
+        if (uiState.value.isSaving) {
+            onResult("正在保存，请稍候")
+            return
+        }
+        if (failedOperation != null) {
+            onResult("请先处理当前错误后再保存")
+            return
+        }
+        mutableUiState.update { it.copy(isSaving = true) }
+        viewModelScope.launch {
+            var errorMessage: String? = null
+            try {
+                val refreshedSessions = withContext(Dispatchers.IO) {
+                    val currentRepository = getRepository()
+                    when (EditActivitySessionUseCase(currentRepository)(edit.id, edit.startedAtUtc, edit.endedAtUtc, Instant.now())) {
+                        EditActivitySessionResult.InvalidEndTime -> errorMessage = "结束时间必须晚于开始时间"
+                        EditActivitySessionResult.NotFound -> errorMessage = "记录已不存在，请重新打开历史记录"
+                        EditActivitySessionResult.StillRunning -> errorMessage = "请先结束进行中的记录"
+                        is EditActivitySessionResult.Updated -> Unit
+                    }
+                    currentRepository.getSessions()
+                }
+                sessions = refreshedSessions
+                updateClock()
+            } catch (error: Exception) {
+                if (error is CancellationException) throw error
+                errorMessage = "记录未能保存或刷新，请重试"
+            } finally {
+                mutableUiState.update { it.copy(isSaving = false) }
+            }
+            onResult(errorMessage)
+        }
+    }
+
     private fun runOperation(errorMessage: String, operation: ((RoomActivityRepository) -> Unit)?) {
         if (uiState.value.isSaving) return
         mutableUiState.update { it.copy(isSaving = true) }
@@ -217,6 +254,11 @@ class TimeLoggerViewModel(
                     } ?: Duration.ZERO)
                 },
                 managedActivityTypes = mapManagedActivityTypes(types, sessions),
+                historySessions = sessions.mapNotNull { session ->
+                    session.endedAtUtc?.let { end ->
+                        HistorySessionItem(session.id, types.firstOrNull { it.id == session.activityTypeId }?.name ?: "未知类型", session.startedAtUtc, end)
+                    }
+                }.sortedWith(compareByDescending<HistorySessionItem> { it.startedAtUtc }.thenBy { it.id }),
                 today = buildPeriodSummary(types, sessions, StatisticsRange.DAY, date, zone, now),
                 statistics = buildPeriodSummary(types, sessions, state.statisticsRange, date, zone, now, state.firstDayOfWeek),
             )

@@ -21,7 +21,12 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
@@ -42,13 +47,22 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
 @Composable
-fun RecordScreen(state: TimeLoggerUiState, onToggle: (String) -> Unit, modifier: Modifier = Modifier) {
-    LazyColumn(modifier, verticalArrangement = Arrangement.spacedBy(16.dp)) {
+fun RecordScreen(state: TimeLoggerUiState, onToggle: (String) -> Unit, onSessionSaved: (SessionTimeEdit, (String?) -> Unit) -> Unit, modifier: Modifier = Modifier) {
+    var historyVisible by rememberSaveable { mutableStateOf(false) }
+    if (historyVisible) {
+        HistoryDialog(state, onSessionSaved) { historyVisible = false }
+    }
+    LazyColumn(modifier.testTag("record-list"), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         item {
             Text(state.today.dateLabel, style = MaterialTheme.typography.titleMedium)
             Text(state.statisticsZoneId.id, style = MaterialTheme.typography.bodySmall)
         }
         item { DurationSummary(state.today) }
+        item {
+            TextButton(onClick = { historyVisible = true }, enabled = !state.isSaving && state.errorMessage == null, modifier = Modifier.testTag("history-open")) {
+                Text("历史记录")
+            }
+        }
         if (state.activityTypes.isEmpty()) {
             item { Text("暂无活动类型，请在设置中添加首个类型") }
         }

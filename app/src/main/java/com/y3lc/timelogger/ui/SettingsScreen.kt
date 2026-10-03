@@ -16,6 +16,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -30,6 +31,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
+import com.y3lc.timelogger.R
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import java.time.DayOfWeek
@@ -189,7 +192,13 @@ private fun TypeEditorDialog(type: ActivityTypeItem?, enabled: Boolean, onDismis
                 typeIcons.chunked(2).forEach { row ->
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         row.forEach { (key, label) ->
-                        FilterChip(selected = iconKey == key, onClick = { iconKey = key }, label = { Text(label) }, modifier = Modifier.testTag("type-icon-$key"))
+                        FilterChip(
+                            selected = iconKey == key,
+                            onClick = { iconKey = key },
+                            label = { Text(label) },
+                            leadingIcon = { Icon(painterResource(typeIcon(key)), contentDescription = label, modifier = Modifier.size(18.dp)) },
+                            modifier = Modifier.testTag("type-icon-$key"),
+                        )
                         }
                     }
                 }
@@ -216,4 +225,11 @@ private fun TypeEditorDialog(type: ActivityTypeItem?, enabled: Boolean, onDismis
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
     )
+}
+
+private fun typeIcon(key: String): Int = when (key) {
+    "sleep" -> R.drawable.ic_sleep
+    "walk" -> R.drawable.ic_walk
+    "cycle" -> R.drawable.ic_cycle
+    else -> R.drawable.ic_meeting
 }

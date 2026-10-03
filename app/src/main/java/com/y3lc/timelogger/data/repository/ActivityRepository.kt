@@ -7,6 +7,10 @@ import java.time.Instant
 interface ActivityRepository {
     fun getActivityTypeById(id: String): ActivityType?
 
+    fun getSessionById(id: String): ActivitySession?
+
+    fun updateClosedSession(id: String, startedAtUtc: Instant, endedAtUtc: Instant, updatedAtUtc: Instant): Boolean
+
     fun getActiveSessionByTypeId(activityTypeId: String): ActivitySession?
 
     fun insertSession(session: ActivitySession)

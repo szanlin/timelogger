@@ -116,6 +116,29 @@ class ActivitySessionDaoTest {
         assertEquals(null, sessionDao.getById("first")?.endedAtUtc)
     }
 
+    @Test
+    fun editClosedSessionPersistsTimesAndPreservesSourceZoneAndNote() {
+        sessionDao.insert(activitySession("history", "walking").copy(endedAtUtc = start.plusSeconds(60), note = "备注"))
+        sessionDao.insert(activitySession("running", "reading"))
+        val repository = RoomActivityRepository(database)
+        assertEquals(true, repository.updateClosedSession("history", start.minusSeconds(60), start.plusSeconds(120), start.plusSeconds(180)))
+        assertEquals(false, repository.updateClosedSession("running", start.minusSeconds(60), start.plusSeconds(120), start.plusSeconds(180)))
+        assertThrows(SQLiteConstraintException::class.java) {
+            repository.updateClosedSession("history", start, start, start)
+        }
+        database.close()
+        database = TimeLoggerDatabase.open(context, testDatabaseName)
+        sessionDao = database.activitySessionDao()
+        val edited = sessionDao.getById("history")!!
+        assertEquals(start.minusSeconds(60), edited.startedAtUtc)
+        assertEquals(start.plusSeconds(120), edited.endedAtUtc)
+        assertEquals(start.plusSeconds(180), edited.updatedAtUtc)
+        assertEquals(start, edited.createdAtUtc)
+        assertEquals("Asia/Shanghai", edited.sourceZoneId)
+        assertEquals("备注", edited.note)
+        assertEquals(null, sessionDao.getById("running")?.endedAtUtc)
+    }
+
     private fun activityType(id: String) = ActivityTypeEntity(
         id = id,
         name = id,
