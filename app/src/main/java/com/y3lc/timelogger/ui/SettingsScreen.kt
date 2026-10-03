@@ -6,6 +6,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
@@ -154,7 +155,7 @@ fun SettingsScreen(
                         Text("已归档", modifier = Modifier.testTag("type-archived-${type.name}"))
                     } else {
                         Text(if (type.isRunning) "进行中" else "可用", style = MaterialTheme.typography.labelMedium)
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             TextButton(onClick = { editingType = type; showEditor = true }, enabled = !state.isSaving, modifier = Modifier.heightIn(min = 48.dp).testTag("type-edit-${type.name}")) { Text("编辑") }
                             TextButton(onClick = { onTypeMoved(type.id, -1) }, enabled = index > 0 && !state.isSaving, modifier = Modifier.heightIn(min = 48.dp).testTag("type-move-up-${type.name}")) { Text("上移") }
                             TextButton(onClick = { onTypeMoved(type.id, 1) }, enabled = index >= 0 && index < activeTypes.lastIndex && !state.isSaving, modifier = Modifier.heightIn(min = 48.dp).testTag("type-move-down-${type.name}")) { Text("下移") }

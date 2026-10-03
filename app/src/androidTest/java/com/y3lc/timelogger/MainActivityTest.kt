@@ -1,5 +1,11 @@
 package com.y3lc.timelogger
 
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.width
+import androidx.activity.compose.setContent
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertHeightIsAtLeast
 import androidx.compose.ui.test.assertIsSelected
@@ -22,11 +28,15 @@ import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.unit.dp
 import androidx.test.platform.app.InstrumentationRegistry
 import com.y3lc.timelogger.ui.TimeLoggerViewModel
+import com.y3lc.timelogger.ui.ActivityTypeItem
+import com.y3lc.timelogger.ui.SettingsScreen
+import com.y3lc.timelogger.ui.TimeLoggerUiState
 import com.y3lc.timelogger.data.local.TimeLoggerDatabase
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -309,5 +319,34 @@ class MainActivityTest {
             database.openHelper.writableDatabase.execSQL("DROP TRIGGER IF EXISTS reject_history_edit")
             database.close()
         }
+    }
+
+    @Test
+    fun typeActionsWrapWithinNarrowSettingsWidth() {
+        composeTestRule.runOnUiThread {
+            composeTestRule.activity.setContent {
+                Box(Modifier.width(240.dp).testTag("narrow-settings")) {
+                    SettingsScreen(
+                        state = TimeLoggerUiState(
+                            managedActivityTypes = listOf(ActivityTypeItem("sleep", "睡觉", "sleep", 0xFF5266A6, false)),
+                            isLoading = false,
+                        ),
+                        onZoneSaved = {},
+                        onWeekStartChanged = {},
+                        onTypeCreated = { _, _, _ -> },
+                        onTypeUpdated = { _, _, _, _ -> },
+                        onTypeMoved = { _, _ -> },
+                        onTypeArchived = {},
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            }
+        }
+        composeTestRule.onNodeWithTag("settings-list").performScrollToNode(androidx.compose.ui.test.hasTestTag("type-archive-睡觉"))
+        val container = composeTestRule.onNodeWithTag("narrow-settings").fetchSemanticsNode().boundsInRoot
+        val edit = composeTestRule.onNodeWithTag("type-edit-睡觉").fetchSemanticsNode().boundsInRoot
+        val archive = composeTestRule.onNodeWithTag("type-archive-睡觉").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+        assertTrue("归档操作应在窄屏换行", archive.top > edit.top)
+        assertTrue("归档操作不得超出设置容器", archive.right <= container.right)
     }
 }
