@@ -36,7 +36,7 @@ class TimeLoggerViewModel(
 
     private var database: TimeLoggerDatabase? = null
     private var repository: RoomActivityRepository? = null
-    private data class PendingOperation(val errorMessage: String, val action: (RoomActivityRepository) -> Unit)
+    private data class PendingOperation(val errorMessage: String, val action: ((RoomActivityRepository) -> Unit)?)
     private var failedOperation: PendingOperation? = null
     private var types: List<ActivityType> = emptyList()
     private var sessions: List<ActivitySession> = emptyList()
@@ -161,14 +161,16 @@ class TimeLoggerViewModel(
         }
     }
 
-    private fun runOperation(errorMessage: String, operation: (RoomActivityRepository) -> Unit) {
+    private fun runOperation(errorMessage: String, operation: ((RoomActivityRepository) -> Unit)?) {
         if (uiState.value.isSaving) return
         mutableUiState.update { it.copy(isSaving = true) }
         viewModelScope.launch {
+            var operationCompleted = false
             try {
                 val snapshot = withContext(Dispatchers.IO) {
                     val currentRepository = getRepository()
-                    operation(currentRepository)
+                    operation?.invoke(currentRepository)
+                    operationCompleted = true
                     currentRepository.inTransaction {
                         Triple(currentRepository.getActivityTypes(), currentRepository.getSessions(), settingsStore.load())
                     }
@@ -182,8 +184,10 @@ class TimeLoggerViewModel(
                 updateClock()
             } catch (error: Exception) {
                 if (error is CancellationException) throw error
-                failedOperation = PendingOperation(errorMessage, operation)
-                mutableUiState.update { it.copy(isLoading = false, errorMessage = errorMessage) }
+                val retryErrorMessage = if (operationCompleted) "无法刷新记录，请重试" else errorMessage
+                // 写入完成后只重试读取，避免重复新增、归档或移动类型。
+                failedOperation = PendingOperation(retryErrorMessage, if (operationCompleted) null else operation)
+                mutableUiState.update { it.copy(isLoading = false, errorMessage = retryErrorMessage) }
             } finally {
                 mutableUiState.update { it.copy(isSaving = false) }
             }

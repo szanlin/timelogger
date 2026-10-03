@@ -5,6 +5,7 @@ import androidx.test.platform.app.InstrumentationRegistry
 import com.y3lc.timelogger.data.local.TimeLoggerDatabase
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -15,6 +16,88 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 
 class TimeLoggerViewModelTest {
+    @Test
+    fun retryAfterCreateRefreshFailureDoesNotInsertAgain() {
+        verifyRefreshRetry(
+            operation = { it.createActivityType("阅读", "meeting", 0xFF112233) },
+            verify = { viewModel, database ->
+                assertEquals(1, database.activityTypeDao().getAll().count { it.name == "阅读" })
+                assertEquals(1, viewModel.uiState.value.activityTypes.count { it.name == "阅读" })
+            },
+        )
+    }
+
+    @Test
+    fun retryAfterMoveRefreshFailureDoesNotMoveTwice() {
+        verifyRefreshRetry(
+            operation = { it.moveActivityType("sleep", 1) },
+            verify = { viewModel, _ ->
+                assertEquals(listOf("walk", "sleep", "cycle", "meeting"), viewModel.uiState.value.activityTypes.map { it.id })
+            },
+        )
+    }
+
+    @Test
+    fun retryAfterArchiveRefreshFailureDoesNotArchiveAgain() {
+        verifyRefreshRetry(
+            operation = { it.archiveActivityType("sleep") },
+            verify = { viewModel, _ ->
+                assertTrue(viewModel.uiState.value.managedActivityTypes.first { it.id == "sleep" }.isArchived)
+                assertFalse(viewModel.uiState.value.activityTypes.any { it.id == "sleep" })
+            },
+        )
+    }
+
+    private fun verifyRefreshRetry(
+        operation: (TimeLoggerViewModel) -> Unit,
+        verify: (TimeLoggerViewModel, TimeLoggerDatabase) -> Unit,
+    ) {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val context = instrumentation.targetContext
+        val name = "refresh-retry-view-model-test.db"
+        context.deleteDatabase(name)
+        val database = TimeLoggerDatabase.open(context, name)
+        val settings = FailingReadSettingsStore()
+        val store = ViewModelStore()
+        lateinit var viewModel: TimeLoggerViewModel
+        instrumentation.runOnMainSync {
+            viewModel = TimeLoggerViewModel({ database }, settings)
+            store.put("test", viewModel)
+        }
+        try {
+            awaitState { !viewModel.uiState.value.isSaving }
+            settings.failReads = true
+            instrumentation.runOnMainSync { operation(viewModel) }
+            awaitState { !viewModel.uiState.value.isSaving }
+            assertNotNull(viewModel.uiState.value.errorMessage)
+            // 连续读取失败也不能恢复已经提交的写操作。
+            instrumentation.runOnMainSync { viewModel.refresh() }
+            awaitState { !viewModel.uiState.value.isSaving }
+            assertNotNull(viewModel.uiState.value.errorMessage)
+            settings.failReads = false
+            instrumentation.runOnMainSync { viewModel.refresh() }
+            awaitState { !viewModel.uiState.value.isSaving }
+            assertNull(viewModel.uiState.value.errorMessage)
+            verify(viewModel, database)
+        } finally {
+            instrumentation.runOnMainSync { store.clear() }
+            context.deleteDatabase(name)
+        }
+    }
+
+    private class FailingReadSettingsStore : SettingsStore {
+        @Volatile
+        var failReads = false
+        private val delegate = InMemorySettingsStore()
+
+        override fun load(): AppSettings {
+            check(!failReads) { "测试刷新读取失败" }
+            return delegate.load()
+        }
+
+        override fun save(settings: AppSettings) = delegate.save(settings)
+    }
+
     @Test
     fun settingsChangeStatisticsAndSurviveViewModelRecreation() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
