@@ -1,12 +1,14 @@
 package com.y3lc.timelogger
 
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertHeightIsAtLeast
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertContentDescriptionContains
 import androidx.compose.ui.test.assert
+import androidx.compose.ui.test.assertWidthIsAtLeast
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
@@ -17,6 +19,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.unit.dp
 import androidx.test.platform.app.InstrumentationRegistry
 import com.y3lc.timelogger.ui.TimeLoggerViewModel
 import com.y3lc.timelogger.data.local.TimeLoggerDatabase
@@ -130,6 +133,17 @@ class MainActivityTest {
         colorNode.performClick()
         colorNode.assertIsSelected()
         colorNode.assert(SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Button))
+        colorNode.assertWidthIsAtLeast(48.dp).assertHeightIsAtLeast(48.dp)
+    }
+
+    @Test
+    fun typeIconSelectionExposesSelectedButtonSemantics() {
+        composeTestRule.onNodeWithTag("nav-settings").performClick()
+        composeTestRule.onNodeWithTag("type-add").performClick()
+        val iconNode = composeTestRule.onNodeWithTag("type-icon-sleep")
+        iconNode.performClick().assertIsSelected()
+        iconNode.assert(SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Button))
+        iconNode.assertWidthIsAtLeast(48.dp).assertHeightIsAtLeast(48.dp)
     }
 
     @Test

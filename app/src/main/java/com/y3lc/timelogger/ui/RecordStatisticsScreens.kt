@@ -21,11 +21,13 @@ import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -149,14 +151,22 @@ private fun activityIcon(iconKey: String): Int = when (iconKey) {
 fun StatisticsScreen(state: TimeLoggerUiState, onRangeSelected: (StatisticsRange) -> Unit, modifier: Modifier = Modifier) {
     LazyColumn(modifier.testTag("statistics-list"), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         item {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                StatisticsRange.entries.forEach { range ->
-                    FilterChip(selected = state.statisticsRange == range, onClick = { onRangeSelected(range) }, label = { Text(range.label) }, modifier = Modifier.testTag("period-${range.name.lowercase()}"))
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                    StatisticsRange.entries.forEachIndexed { index, range ->
+                        SegmentedButton(
+                            selected = state.statisticsRange == range,
+                            onClick = { onRangeSelected(range) },
+                            shape = SegmentedButtonDefaults.itemShape(index, StatisticsRange.entries.size),
+                            modifier = Modifier.weight(1f).testTag("period-${range.name.lowercase()}"),
+                            label = { Text(range.label) },
+                        )
+                    }
                 }
+                Text(state.statisticsRange.periodLabel, modifier = Modifier.testTag("statistics-period-label"), style = MaterialTheme.typography.titleLarge)
+                Text(state.statistics.dateLabel, style = MaterialTheme.typography.bodyMedium)
+                Text("统计时区 ${state.statisticsZoneId.id}", style = MaterialTheme.typography.bodySmall)
             }
-            Text(state.statisticsRange.periodLabel, modifier = Modifier.testTag("statistics-period-label"), style = MaterialTheme.typography.titleLarge)
-            Text(state.statistics.dateLabel, style = MaterialTheme.typography.bodyMedium)
-            Text(state.statisticsZoneId.id, style = MaterialTheme.typography.bodySmall)
         }
         if (state.statistics.ranking.isEmpty()) {
             item { Text("这个周期还没有记录，去记录页开始一项活动吧", modifier = Modifier.testTag("statistics-empty")) }
@@ -170,19 +180,31 @@ fun StatisticsScreen(state: TimeLoggerUiState, onRangeSelected: (StatisticsRange
             }
             item { Text("类型累计排行", style = MaterialTheme.typography.titleMedium) }
             items(state.statistics.ranking, key = { it.typeId }) { type ->
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text(type.name)
-                        Text(formatDuration(type.duration))
+                Card(
+                    Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+                ) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Canvas(Modifier.size(10.dp)) { drawCircle(Color(type.colorArgb)) }
+                            Text(type.name, modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
+                            Text(formatDuration(type.duration), style = MaterialTheme.typography.titleSmall)
+                        }
+                        val fraction = (type.duration.toMillis().toDouble() / state.statistics.totalDuration.toMillis().coerceAtLeast(1)).toFloat()
+                        LinearProgressIndicator(progress = { fraction }, color = Color(type.colorArgb), modifier = Modifier.fillMaxWidth())
+                        Text("占类型累计 ${"%.1f".format(fraction * 100)}%", style = MaterialTheme.typography.labelSmall)
                     }
-                    val fraction = (type.duration.toMillis().toDouble() / state.statistics.totalDuration.toMillis().coerceAtLeast(1)).toFloat()
-                    LinearProgressIndicator(progress = { fraction }, color = Color(type.colorArgb), modifier = Modifier.fillMaxWidth())
-                    Text("占类型累计 ${"%.1f".format(fraction * 100)}%", style = MaterialTheme.typography.labelSmall)
                 }
             }
             if (state.statisticsRange == StatisticsRange.DAY) {
-                item { Text("当日时间轴", style = MaterialTheme.typography.titleMedium) }
-                item { Timeline(state.statistics, state.statisticsZoneId) }
+                item {
+                    Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)) {
+                        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Text("当日时间轴", style = MaterialTheme.typography.titleMedium)
+                            Timeline(state.statistics, state.statisticsZoneId)
+                        }
+                    }
+                }
             }
         }
     }
@@ -194,7 +216,8 @@ private fun WeeklyStackedChart(summary: PeriodSummary) {
     if (days.isEmpty()) return
     val maxMillis = days.maxOf { it.totalDuration.toMillis() }.coerceAtLeast(1)
     val colorsByTypeId = summary.ranking.associate { it.typeId to Color(it.colorArgb) }
-    Column(Modifier.fillMaxWidth().testTag("statistics-week-chart"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Card(Modifier.fillMaxWidth().testTag("statistics-week-chart"), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)) {
+    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text("每日类型堆叠时长", style = MaterialTheme.typography.titleMedium)
         Text("单日最高 ${formatDuration(Duration.ofMillis(maxMillis))}", style = MaterialTheme.typography.labelSmall)
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -235,6 +258,7 @@ private fun WeeklyStackedChart(summary: PeriodSummary) {
             }
         }
     }
+    }
 }
 
 @Composable
@@ -247,7 +271,8 @@ private fun MonthlyTrendChart(summary: PeriodSummary) {
     val description = days.joinToString("；") { day ->
         "${day.date.dayOfMonth}日，覆盖 ${formatDuration(day.coverageDuration)}，类型累计 ${formatDuration(day.totalDuration)}"
     }
-    Column(Modifier.fillMaxWidth().testTag("statistics-month-chart"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Card(Modifier.fillMaxWidth().testTag("statistics-month-chart"), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)) {
+    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text("每日时长趋势", style = MaterialTheme.typography.titleMedium)
         Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
             TrendLegend("覆盖时长", coverageColor)
@@ -284,6 +309,7 @@ private fun MonthlyTrendChart(summary: PeriodSummary) {
             if (days.size > 1) Text("${days.last().date.dayOfMonth}日", style = MaterialTheme.typography.labelSmall)
         }
     }
+    }
 }
 
 @Composable
@@ -296,18 +322,20 @@ private fun TrendLegend(label: String, color: Color) {
 
 @Composable
 private fun DurationSummary(summary: PeriodSummary) {
-    Card(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text("覆盖时长")
-                Text(formatDuration(summary.coverageDuration), style = MaterialTheme.typography.titleMedium)
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("覆盖时长", style = MaterialTheme.typography.labelLarge)
+                Text(formatDuration(summary.coverageDuration), style = MaterialTheme.typography.headlineMedium)
             }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text("类型累计时长")
-                Text(formatDuration(summary.totalDuration), style = MaterialTheme.typography.titleMedium)
-            }
-            Text("并行活动分别累计，覆盖时长只计算一次", style = MaterialTheme.typography.bodySmall)
         }
+        Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer)) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("类型累计时长", style = MaterialTheme.typography.labelLarge)
+                Text(formatDuration(summary.totalDuration), style = MaterialTheme.typography.titleLarge)
+            }
+        }
+        Text("并行活动分别累计，覆盖时长只计算一次", style = MaterialTheme.typography.bodySmall)
     }
 }
 
