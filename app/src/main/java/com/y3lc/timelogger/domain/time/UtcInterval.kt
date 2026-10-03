@@ -16,13 +16,19 @@ data class UtcInterval(
         endedAtUtc: Instant?,
         nowUtc: Instant,
     ): Duration {
+        return clip(startedAtUtc, endedAtUtc, nowUtc)?.let {
+            Duration.between(it.start, it.endExclusive)
+        } ?: Duration.ZERO
+    }
+
+    fun clip(startedAtUtc: Instant, endedAtUtc: Instant?, nowUtc: Instant): UtcInterval? {
         val sessionEndUtc = endedAtUtc ?: nowUtc
         val overlapStart = maxOf(startedAtUtc, start)
         val overlapEnd = minOf(sessionEndUtc, endExclusive)
         return if (overlapEnd > overlapStart) {
-            Duration.between(overlapStart, overlapEnd)
+            UtcInterval(overlapStart, overlapEnd)
         } else {
-            Duration.ZERO
+            null
         }
     }
 }

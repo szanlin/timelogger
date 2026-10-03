@@ -15,15 +15,24 @@ import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.repeatOnLifecycle
 import com.y3lc.timelogger.ui.MainTab
 import com.y3lc.timelogger.ui.TimeLoggerUiState
 import com.y3lc.timelogger.ui.TimeLoggerViewModel
+import com.y3lc.timelogger.ui.RecordScreen
+import com.y3lc.timelogger.ui.StatisticsScreen
+import com.y3lc.timelogger.ui.StatisticsRange
+import kotlinx.coroutines.delay
 
 class MainActivity : ComponentActivity() {
     private val viewModel: TimeLoggerViewModel by viewModels {
@@ -35,15 +44,25 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+            val lifecycleOwner = LocalLifecycleOwner.current
+            LaunchedEffect(lifecycleOwner) {
+                lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                    viewModel.onForeground()
+                    while (true) {
+                        viewModel.updateClock()
+                        delay(1_000)
+                    }
+                }
+            }
             MaterialTheme {
-                TimeLoggerApp(uiState, viewModel::selectTab)
+                TimeLoggerApp(uiState, viewModel::selectTab, viewModel::toggleActivity, viewModel::selectStatisticsRange, viewModel::refresh)
             }
         }
     }
 }
 
 @Composable
-private fun TimeLoggerApp(uiState: TimeLoggerUiState, onTabSelected: (MainTab) -> Unit) {
+private fun TimeLoggerApp(uiState: TimeLoggerUiState, onTabSelected: (MainTab) -> Unit, onToggle: (String) -> Unit, onRangeSelected: (StatisticsRange) -> Unit, onRetry: () -> Unit) {
     Scaffold(
         bottomBar = {
             NavigationBar {
@@ -59,12 +78,12 @@ private fun TimeLoggerApp(uiState: TimeLoggerUiState, onTabSelected: (MainTab) -
             }
         },
     ) { padding ->
-        MainScreen(uiState, padding)
+        MainScreen(uiState, padding, onToggle, onRangeSelected, onRetry)
     }
 }
 
 @Composable
-private fun MainScreen(uiState: TimeLoggerUiState, padding: PaddingValues) {
+private fun MainScreen(uiState: TimeLoggerUiState, padding: PaddingValues, onToggle: (String) -> Unit, onRangeSelected: (StatisticsRange) -> Unit, onRetry: () -> Unit) {
     Column(Modifier.fillMaxSize().padding(padding).padding(16.dp)) {
         Text(
             uiState.selectedTab.label,
@@ -73,8 +92,17 @@ private fun MainScreen(uiState: TimeLoggerUiState, padding: PaddingValues) {
         )
         if (uiState.isLoading) {
             CircularProgressIndicator()
-        } else if (uiState.errorMessage != null) {
+        }
+        if (uiState.errorMessage != null) {
             Text(uiState.errorMessage)
+            TextButton(onClick = onRetry, enabled = !uiState.isSaving, modifier = Modifier.testTag("retry")) { Text("重试") }
+        }
+        if (!uiState.isLoading) {
+            when (uiState.selectedTab) {
+                MainTab.RECORD -> RecordScreen(uiState, onToggle, Modifier.weight(1f).padding(top = 16.dp))
+                MainTab.STATISTICS -> StatisticsScreen(uiState, onRangeSelected, Modifier.weight(1f).padding(top = 16.dp))
+                MainTab.SETTINGS -> Unit
+            }
         }
     }
 }

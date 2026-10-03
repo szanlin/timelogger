@@ -7,6 +7,9 @@ import java.time.Instant
 
 @Dao
 interface ActivitySessionDao {
+    @Query("SELECT * FROM activity_sessions ORDER BY startedAtUtc, id")
+    fun getAll(): List<ActivitySessionEntity>
+
     @Query("SELECT * FROM activity_sessions WHERE id = :id")
     fun getById(id: String): ActivitySessionEntity?
 

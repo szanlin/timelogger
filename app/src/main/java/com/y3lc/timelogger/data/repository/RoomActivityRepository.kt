@@ -21,7 +21,7 @@ class RoomActivityRepository(private val database: TimeLoggerDatabase) : Activit
 
     fun getActivityTypes(): List<ActivityType> = activityTypeDao.getAll().map { it.toDomain() }
 
-    fun getActiveSessions(): List<ActivitySession> = activitySessionDao.getActiveSessions().map { it.toDomain() }
+    fun getSessions(): List<ActivitySession> = activitySessionDao.getAll().map { it.toDomain() }
 
     override fun getActivityTypeById(id: String): ActivityType? =
         activityTypeDao.getById(id)?.toDomain()

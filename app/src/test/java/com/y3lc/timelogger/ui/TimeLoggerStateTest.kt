@@ -3,12 +3,52 @@ package com.y3lc.timelogger.ui
 import com.y3lc.timelogger.domain.model.ActivitySession
 import com.y3lc.timelogger.domain.model.ActivityType
 import java.time.Instant
+import java.time.Duration
+import java.time.LocalDate
+import java.time.ZoneId
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Test
 
 class TimeLoggerStateTest {
     private val now = Instant.parse("2026-10-02T00:00:00Z")
+
+    @Test
+    fun clipsTodayTimelineAndSeparatesCoverageFromParallelTotals() {
+        val sessions = listOf(
+            activitySession("walk").copy(startedAtUtc = Instant.parse("2026-10-01T15:00:00Z"), endedAtUtc = Instant.parse("2026-10-01T18:00:00Z")),
+            activitySession("sleep").copy(startedAtUtc = Instant.parse("2026-10-01T17:00:00Z"), endedAtUtc = Instant.parse("2026-10-01T19:00:00Z")),
+        )
+        val summary = buildPeriodSummary(listOf(activityType("walk", "走路", 0), activityType("sleep", "睡觉", 1)), sessions, StatisticsRange.DAY, LocalDate.parse("2026-10-02"), ZoneId.of("Asia/Shanghai"), now)
+
+        assertEquals(Duration.ofHours(3), summary.coverageDuration)
+        assertEquals(Duration.ofHours(4), summary.totalDuration)
+        assertEquals("2026-10-02", summary.dateLabel)
+        assertEquals(2, summary.timeline.size)
+        assertEquals(Instant.parse("2026-10-01T16:00:00Z"), summary.timeline.first().interval.start)
+        assertEquals(listOf("sleep", "walk"), summary.ranking.map { it.typeId })
+    }
+
+    @Test
+    fun weekAndMonthShowFullPreciseRangesAndRetainArchivedHistory() {
+        val archivedType = activityType("walk", "走路", 0, isArchived = true)
+        val sessions = listOf(activitySession("walk"))
+        val week = buildPeriodSummary(listOf(archivedType), sessions, StatisticsRange.WEEK, LocalDate.parse("2026-10-02"), ZoneId.of("Asia/Shanghai"), now)
+        val month = buildPeriodSummary(listOf(archivedType), sessions, StatisticsRange.MONTH, LocalDate.parse("2026-10-02"), ZoneId.of("Asia/Shanghai"), now)
+
+        assertEquals("2026-09-28 — 2026-10-04", week.dateLabel)
+        assertEquals("2026-10-01 — 2026-10-31", month.dateLabel)
+        assertEquals("走路", week.ranking.single().name)
+        assertEquals(Duration.ofMinutes(1), week.totalDuration)
+    }
+
+    @Test
+    fun emptyPeriodHasNoRankingOrTimeline() {
+        val summary = buildPeriodSummary(emptyList(), emptyList(), StatisticsRange.DAY, LocalDate.parse("2026-10-02"), ZoneId.of("UTC"), now)
+        assertEquals(emptyList<Any>(), summary.ranking)
+        assertEquals(emptyList<Any>(), summary.timeline)
+        assertEquals(Duration.ZERO, summary.totalDuration)
+    }
 
     @Test
     fun mapsVisibleTypesAndTheirRunningStateInSortOrder() {

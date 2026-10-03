@@ -20,13 +20,9 @@ object StatisticsCalculator {
         val periodInterval = period.interval
 
         for (session in sessions) {
-            val sessionEndUtc = session.endedAtUtc ?: nowUtc
-            val clippedStart = maxOf(session.startedAtUtc, periodInterval.start)
-            val clippedEnd = minOf(sessionEndUtc, periodInterval.endExclusive)
-            if (clippedEnd <= clippedStart) continue
-
-            clippedIntervals.add(UtcInterval(clippedStart, clippedEnd))
-            val duration = Duration.between(clippedStart, clippedEnd)
+            val interval = periodInterval.clip(session.startedAtUtc, session.endedAtUtc, nowUtc) ?: continue
+            clippedIntervals.add(interval)
+            val duration = Duration.between(interval.start, interval.endExclusive)
             val previous = durationByActivityTypeId[session.activityTypeId] ?: Duration.ZERO
             durationByActivityTypeId[session.activityTypeId] = previous.plus(duration)
         }

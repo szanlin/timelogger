@@ -5,6 +5,9 @@ import android.database.sqlite.SQLiteConstraintException
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import java.time.Instant
+import com.y3lc.timelogger.data.repository.RoomActivityRepository
+import com.y3lc.timelogger.domain.usecase.ArchiveActivityTypeUseCase
+import com.y3lc.timelogger.domain.usecase.ArchiveActivityTypeResult
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
@@ -82,6 +85,7 @@ class ActivitySessionDaoTest {
         assertEquals(1, sessionDao.endSession("first", end, end))
         assertEquals(null, sessionDao.getActiveSessionByTypeId("walking"))
         assertEquals(end, sessionDao.getById("first")?.endedAtUtc)
+        assertEquals(listOf("first"), sessionDao.getAll().map { it.id })
         sessionDao.insert(activitySession("second", "walking"))
         assertEquals("second", sessionDao.getActiveSessionByTypeId("walking")?.id)
     }
@@ -98,7 +102,7 @@ class ActivitySessionDaoTest {
         sessionDao.insert(activitySession("first", "walking"))
         val end = start.plusSeconds(1)
 
-        assertEquals(1, database.activityTypeDao().archiveAndEndActive("walking", end, end))
+        assertEquals(ArchiveActivityTypeResult.Archived, ArchiveActivityTypeUseCase(RoomActivityRepository(database))("walking", end))
         assertEquals(true, database.activityTypeDao().getById("walking")?.isArchived)
         assertEquals(end, sessionDao.getById("first")?.endedAtUtc)
     }
@@ -107,9 +111,7 @@ class ActivitySessionDaoTest {
     fun invalidArchiveEndRollsBackArchive() {
         sessionDao.insert(activitySession("first", "walking"))
 
-        assertThrows(SQLiteConstraintException::class.java) {
-            database.activityTypeDao().archiveAndEndActive("walking", start, start)
-        }
+        assertEquals(ArchiveActivityTypeResult.InvalidEndTime, ArchiveActivityTypeUseCase(RoomActivityRepository(database))("walking", start))
         assertEquals(false, database.activityTypeDao().getById("walking")?.isArchived)
         assertEquals(null, sessionDao.getById("first")?.endedAtUtc)
     }
