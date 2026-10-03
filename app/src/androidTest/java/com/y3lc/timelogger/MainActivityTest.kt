@@ -141,7 +141,7 @@ class MainActivityTest {
         composeTestRule.onNodeWithTag("activity-walk").assertContentDescriptionContains("进行中", substring = true)
         composeTestRule.onNodeWithTag("activity-sleep").performClick()
         awaitStableState()
-        composeTestRule.onNodeWithTag("activity-sleep").assertContentDescriptionContains("点击开始", substring = true)
+        composeTestRule.onNodeWithTag("activity-sleep").assertContentDescriptionContains("睡觉", substring = true)
         composeTestRule.onNodeWithTag("activity-walk").assertContentDescriptionContains("进行中", substring = true)
         composeTestRule.onNodeWithTag("activity-walk").performClick()
         awaitStableState()
@@ -175,7 +175,7 @@ class MainActivityTest {
         composeTestRule.onNodeWithTag("activity-walk").performClick()
         awaitStableState()
         composeTestRule.waitUntil(5_000) {
-            runCatching { composeTestRule.onNodeWithTag("activity-walk").assertContentDescriptionContains("点击开始", substring = true) }.isSuccess
+            runCatching { composeTestRule.onNodeWithTag("activity-walk").assertContentDescriptionContains("走路", substring = true) }.isSuccess
         }
         composeTestRule.onNodeWithTag("nav-statistics").performClick()
 

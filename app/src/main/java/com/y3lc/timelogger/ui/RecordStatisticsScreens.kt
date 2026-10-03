@@ -73,7 +73,7 @@ fun RecordScreen(state: TimeLoggerUiState, onToggle: (String) -> Unit, modifier:
 @Composable
 private fun ActivityCard(type: ActivityTypeItem, enabled: Boolean, onClick: () -> Unit, modifier: Modifier) {
     val tint = Color(type.colorArgb)
-    val status = if (type.isRunning) "进行中，点击结束" else "点击开始"
+    val status = if (type.isRunning) "进行中" else "空闲"
     Card(
         onClick = onClick,
         enabled = enabled,
@@ -87,8 +87,9 @@ private fun ActivityCard(type: ActivityTypeItem, enabled: Boolean, onClick: () -
             }
             Spacer(Modifier.height(8.dp))
             Text(type.name, style = MaterialTheme.typography.titleMedium)
-            Text(if (type.isRunning) formatDuration(type.runningDuration) else "点击开始", style = MaterialTheme.typography.bodyMedium)
-            if (type.isRunning) Text("进行中 · 点击结束", color = tint, style = MaterialTheme.typography.labelSmall)
+            if (type.isRunning) {
+                Text(formatDuration(type.runningDuration), style = MaterialTheme.typography.bodyMedium)
+            }
         }
     }
 }
