@@ -6,12 +6,61 @@ import androidx.compose.ui.test.assertContentDescriptionContains
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.performTextReplacement
+import androidx.compose.ui.test.performScrollToNode
 import org.junit.Rule
 import org.junit.Test
 
 class MainActivityTest {
     @get:Rule
     val composeTestRule = createAndroidComposeRule<MainActivity>()
+
+    @Test
+    fun settingsCanChooseFixedZoneAndSunday() {
+        composeTestRule.onNodeWithTag("nav-settings").performClick()
+        composeTestRule.onNodeWithTag("settings-zone-fixed").performClick()
+        composeTestRule.onNodeWithTag("settings-zone-input").performTextReplacement("America/New_York")
+        composeTestRule.onNodeWithTag("settings-zone-save").performClick()
+        composeTestRule.waitUntil(5_000) {
+            composeTestRule.onAllNodes(androidx.compose.ui.test.hasTestTag("settings-zone-current")).fetchSemanticsNodes().isNotEmpty()
+        }
+        composeTestRule.onNodeWithTag("settings-zone-current").assertTextEquals("America/New_York")
+        composeTestRule.onNodeWithTag("settings-week-sunday").performClick()
+        composeTestRule.onNodeWithTag("settings-week-sunday").assertExists()
+    }
+
+    @Test
+    fun settingsCanCreateEditAndArchiveType() {
+        val name = "阅读${System.nanoTime()}"
+        val edited = "学习${System.nanoTime()}"
+        composeTestRule.onNodeWithTag("nav-settings").performClick()
+        composeTestRule.onNodeWithTag("type-add").performClick()
+        composeTestRule.onNodeWithTag("type-name-input").performTextInput(name)
+        composeTestRule.onNodeWithTag("type-save").performClick()
+        composeTestRule.waitUntil(5_000) {
+            runCatching {
+                composeTestRule.onNodeWithTag("settings-list").performScrollToNode(androidx.compose.ui.test.hasTestTag("type-edit-$name"))
+            }.isSuccess
+        }
+        composeTestRule.onNodeWithTag("type-edit-$name").performClick()
+        composeTestRule.onNodeWithTag("type-name-input").performTextReplacement(edited)
+        composeTestRule.onNodeWithTag("type-save").performClick()
+        composeTestRule.waitUntil(5_000) {
+            runCatching {
+                composeTestRule.onNodeWithTag("settings-list").performScrollToNode(androidx.compose.ui.test.hasTestTag("type-move-up-$edited"))
+            }.isSuccess
+        }
+        composeTestRule.onNodeWithTag("type-move-up-$edited").performClick()
+        composeTestRule.onNodeWithTag("type-archive-$edited").performClick()
+        composeTestRule.onNodeWithTag("type-confirm-archive").performClick()
+        composeTestRule.waitUntil(5_000) {
+            runCatching {
+                composeTestRule.onNodeWithTag("settings-list").performScrollToNode(androidx.compose.ui.test.hasTestTag("type-archived-$edited"))
+            }.isSuccess
+        }
+        composeTestRule.onNodeWithTag("type-archived-$edited").assertExists()
+    }
 
     @Test
     fun differentActivityTypesCanRunTogetherAndStopIndependently() {

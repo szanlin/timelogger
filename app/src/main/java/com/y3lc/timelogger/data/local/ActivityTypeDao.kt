@@ -3,6 +3,7 @@ package com.y3lc.timelogger.data.local
 import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.Query
+import androidx.room.Update
 import java.time.Instant
 
 @Dao
@@ -15,6 +16,9 @@ interface ActivityTypeDao {
 
     @Insert
     fun insert(activityType: ActivityTypeEntity)
+
+    @Update
+    fun update(activityType: ActivityTypeEntity)
 
     @Query("UPDATE activity_types SET isArchived = 1, updatedAtUtc = :updatedAtUtc WHERE id = :id")
     fun archive(id: String, updatedAtUtc: Instant): Int

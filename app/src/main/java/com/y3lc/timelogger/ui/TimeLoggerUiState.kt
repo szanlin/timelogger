@@ -24,6 +24,7 @@ data class ActivityTypeItem(
     val colorArgb: Long,
     val isRunning: Boolean,
     val runningDuration: Duration = Duration.ZERO,
+    val isArchived: Boolean = false,
 )
 
 enum class StatisticsRange(val label: String, val periodLabel: String) {
@@ -47,6 +48,9 @@ data class TimeLoggerUiState(
     val selectedTab: MainTab = MainTab.RECORD,
     val activityTypes: List<ActivityTypeItem> = emptyList(),
     val statisticsZoneId: ZoneId = ZoneId.systemDefault(),
+    val fixedStatisticsZoneId: String? = null,
+    val firstDayOfWeek: DayOfWeek = DayOfWeek.MONDAY,
+    val managedActivityTypes: List<ActivityTypeItem> = emptyList(),
     val isLoading: Boolean = true,
     val errorMessage: String? = null,
     val isSaving: Boolean = false,
@@ -64,6 +68,12 @@ fun mapActivityTypes(types: List<ActivityType>, sessions: List<ActivitySession>)
             ActivityTypeItem(type.id, type.name, type.iconKey, type.colorArgb, type.id in runningTypeIds)
         }
         .toList()
+}
+
+fun mapManagedActivityTypes(types: List<ActivityType>, sessions: List<ActivitySession>): List<ActivityTypeItem> {
+    val runningTypeIds = sessions.filter { it.endedAtUtc == null }.mapTo(mutableSetOf()) { it.activityTypeId }
+    return types.sortedWith(compareBy<ActivityType> { it.isArchived }.thenBy { it.sortOrder }.thenBy { it.id })
+        .map { type -> ActivityTypeItem(type.id, type.name, type.iconKey, type.colorArgb, type.id in runningTypeIds, isArchived = type.isArchived) }
 }
 
 fun buildPeriodSummary(

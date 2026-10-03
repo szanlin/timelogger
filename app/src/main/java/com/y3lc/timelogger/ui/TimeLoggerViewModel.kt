@@ -8,13 +8,17 @@ import com.y3lc.timelogger.data.local.TimeLoggerDatabase
 import com.y3lc.timelogger.data.repository.RoomActivityRepository
 import com.y3lc.timelogger.domain.model.ActivitySession
 import com.y3lc.timelogger.domain.model.ActivityType
+import com.y3lc.timelogger.domain.usecase.ArchiveActivityTypeResult
+import com.y3lc.timelogger.domain.usecase.ArchiveActivityTypeUseCase
 import com.y3lc.timelogger.domain.usecase.StartActivitySessionUseCase
 import com.y3lc.timelogger.domain.usecase.StartActivitySessionResult
 import com.y3lc.timelogger.domain.usecase.StopActivitySessionUseCase
 import com.y3lc.timelogger.domain.usecase.StopActivitySessionResult
 import java.time.Duration
+import java.time.DayOfWeek
 import java.time.Instant
 import java.time.ZoneId
+import java.util.UUID
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -24,7 +28,12 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-class TimeLoggerViewModel(private val openDatabase: () -> TimeLoggerDatabase) : ViewModel() {
+class TimeLoggerViewModel(
+    private val openDatabase: () -> TimeLoggerDatabase,
+    private val settingsStore: SettingsStore,
+) : ViewModel() {
+    constructor(openDatabase: () -> TimeLoggerDatabase) : this(openDatabase, InMemorySettingsStore())
+
     private var database: TimeLoggerDatabase? = null
     private var repository: RoomActivityRepository? = null
     private data class PendingOperation(val errorMessage: String, val action: (RoomActivityRepository) -> Unit)
@@ -61,6 +70,79 @@ class TimeLoggerViewModel(private val openDatabase: () -> TimeLoggerDatabase) : 
         updateClock()
     }
 
+    fun saveStatisticsZone(zoneId: String?) {
+        val normalized = zoneId?.trim()
+        if (normalized != null && runCatching { ZoneId.of(normalized) }.isFailure) {
+            mutableUiState.update { it.copy(errorMessage = "请输入有效的 IANA 时区") }
+            return
+        }
+        runOperation("统计时区未能保存，请重试") {
+            settingsStore.save(settingsStore.load().copy(fixedZoneId = normalized))
+        }
+    }
+
+    fun setWeekStart(dayOfWeek: DayOfWeek) {
+        if (dayOfWeek != DayOfWeek.MONDAY && dayOfWeek != DayOfWeek.SUNDAY) return
+        runOperation("每周起始日未能保存，请重试") {
+            settingsStore.save(settingsStore.load().copy(firstDayOfWeek = dayOfWeek))
+        }
+    }
+
+    fun createActivityType(name: String, iconKey: String, colorArgb: Long) {
+        val normalized = validateActivityType(name, iconKey) ?: return
+        val id = UUID.randomUUID().toString()
+        runOperation("类型未能新增，请重试") { repository ->
+            repository.inTransaction {
+                val now = Instant.now()
+                val sortOrder = (repository.getActivityTypes().maxOfOrNull { it.sortOrder } ?: -1) + 1
+                repository.insertActivityType(ActivityType(id, normalized, iconKey, colorArgb, false, sortOrder, now, now))
+            }
+        }
+    }
+
+    fun updateActivityType(id: String, name: String, iconKey: String, colorArgb: Long) {
+        val normalized = validateActivityType(name, iconKey) ?: return
+        runOperation("类型未能更新，请重试") { repository ->
+            repository.inTransaction {
+                val existing = repository.getActivityTypeById(id)
+                check(existing != null && !existing.isArchived) { "类型不存在或已归档" }
+                repository.updateActivityType(existing.copy(name = normalized, iconKey = iconKey, colorArgb = colorArgb, updatedAtUtc = Instant.now()))
+            }
+        }
+    }
+
+    fun moveActivityType(id: String, direction: Int) {
+        if (direction != -1 && direction != 1) return
+        runOperation("类型排序未能保存，请重试") { repository ->
+            repository.inTransaction {
+                val active = repository.getActivityTypes().filterNot { it.isArchived }
+                    .sortedWith(compareBy<ActivityType> { it.sortOrder }.thenBy { it.id })
+                val index = active.indexOfFirst { it.id == id }
+                val otherIndex = index + direction
+                if (index >= 0 && otherIndex in active.indices) {
+                    val now = Instant.now()
+                    repository.updateActivityType(active[index].copy(sortOrder = active[otherIndex].sortOrder, updatedAtUtc = now))
+                    repository.updateActivityType(active[otherIndex].copy(sortOrder = active[index].sortOrder, updatedAtUtc = now))
+                }
+            }
+        }
+    }
+
+    fun archiveActivityType(id: String) {
+        runOperation("类型未能归档，请重试") { repository ->
+            check(ArchiveActivityTypeUseCase(repository)(id, Instant.now()) == ArchiveActivityTypeResult.Archived)
+        }
+    }
+
+    private fun validateActivityType(name: String, iconKey: String): String? {
+        val normalized = name.trim()
+        if (normalized.isEmpty() || iconKey !in setOf("sleep", "walk", "cycle", "meeting")) {
+            mutableUiState.update { it.copy(errorMessage = "请输入类型名称并选择图标") }
+            return null
+        }
+        return normalized
+    }
+
     fun toggleActivity(activityTypeId: String) {
         if (uiState.value.isSaving || uiState.value.isLoading || failedOperation != null) return
         val type = uiState.value.activityTypes.firstOrNull { it.id == activityTypeId } ?: return
@@ -88,13 +170,15 @@ class TimeLoggerViewModel(private val openDatabase: () -> TimeLoggerDatabase) : 
                     val currentRepository = getRepository()
                     operation(currentRepository)
                     currentRepository.inTransaction {
-                        currentRepository.getActivityTypes() to currentRepository.getSessions()
+                        Triple(currentRepository.getActivityTypes(), currentRepository.getSessions(), settingsStore.load())
                     }
                 }
                 types = snapshot.first
                 sessions = snapshot.second
                 failedOperation = null
-                mutableUiState.update { it.copy(isLoading = false, errorMessage = null) }
+                mutableUiState.update {
+                    it.copy(isLoading = false, errorMessage = null, fixedStatisticsZoneId = snapshot.third.fixedZoneId, firstDayOfWeek = snapshot.third.firstDayOfWeek)
+                }
                 updateClock()
             } catch (error: Exception) {
                 if (error is CancellationException) throw error
@@ -116,7 +200,8 @@ class TimeLoggerViewModel(private val openDatabase: () -> TimeLoggerDatabase) : 
     fun updateClock() {
         if (uiState.value.isLoading) return
         val now = Instant.now()
-        val zone = ZoneId.systemDefault()
+        val stateSettings = uiState.value
+        val zone = stateSettings.fixedStatisticsZoneId?.let(ZoneId::of) ?: ZoneId.systemDefault()
         val date = now.atZone(zone).toLocalDate()
         val activeByType = sessions.filter { it.endedAtUtc == null }.associateBy { it.activityTypeId }
         mutableUiState.update { state ->
@@ -127,8 +212,9 @@ class TimeLoggerViewModel(private val openDatabase: () -> TimeLoggerDatabase) : 
                         Duration.between(it.startedAtUtc, now).coerceAtLeast(Duration.ZERO)
                     } ?: Duration.ZERO)
                 },
+                managedActivityTypes = mapManagedActivityTypes(types, sessions),
                 today = buildPeriodSummary(types, sessions, StatisticsRange.DAY, date, zone, now),
-                statistics = buildPeriodSummary(types, sessions, state.statisticsRange, date, zone, now),
+                statistics = buildPeriodSummary(types, sessions, state.statisticsRange, date, zone, now, state.firstDayOfWeek),
             )
         }
     }
@@ -142,7 +228,10 @@ class TimeLoggerViewModel(private val openDatabase: () -> TimeLoggerDatabase) : 
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
             require(modelClass.isAssignableFrom(TimeLoggerViewModel::class.java))
             @Suppress("UNCHECKED_CAST")
-            return TimeLoggerViewModel { TimeLoggerDatabase.open(context.applicationContext) } as T
+            return TimeLoggerViewModel(
+                { TimeLoggerDatabase.open(context.applicationContext) },
+                PreferencesSettingsStore(context.applicationContext),
+            ) as T
         }
     }
 }

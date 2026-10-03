@@ -6,12 +6,90 @@ import com.y3lc.timelogger.data.local.TimeLoggerDatabase
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.time.DayOfWeek
+import java.time.ZoneId
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 
 class TimeLoggerViewModelTest {
+    @Test
+    fun settingsChangeStatisticsAndSurviveViewModelRecreation() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val context = instrumentation.targetContext
+        val name = "settings-view-model-test.db"
+        val preferenceName = "settings-view-model-test"
+        context.deleteDatabase(name)
+        context.getSharedPreferences(preferenceName, 0).edit().clear().commit()
+        val database = TimeLoggerDatabase.open(context, name)
+        val store = ViewModelStore()
+        try {
+            lateinit var viewModel: TimeLoggerViewModel
+            instrumentation.runOnMainSync {
+                viewModel = TimeLoggerViewModel({ database }, PreferencesSettingsStore(context, preferenceName))
+                store.put("first", viewModel)
+            }
+            awaitState { !viewModel.uiState.value.isSaving }
+            instrumentation.runOnMainSync {
+                viewModel.saveStatisticsZone("America/New_York")
+            }
+            awaitState { viewModel.uiState.value.fixedStatisticsZoneId == "America/New_York" }
+            instrumentation.runOnMainSync { viewModel.setWeekStart(DayOfWeek.SUNDAY) }
+            awaitState { viewModel.uiState.value.firstDayOfWeek == DayOfWeek.SUNDAY }
+            instrumentation.runOnMainSync { viewModel.selectStatisticsRange(StatisticsRange.WEEK) }
+            assertEquals(DayOfWeek.SUNDAY, viewModel.uiState.value.statistics.interval!!.start.atZone(ZoneId.of("America/New_York")).dayOfWeek)
+
+            val reopened = TimeLoggerViewModel({ TimeLoggerDatabase.open(context, name) }, PreferencesSettingsStore(context, preferenceName))
+            instrumentation.runOnMainSync { store.put("second", reopened) }
+            awaitState { !reopened.uiState.value.isSaving }
+            assertEquals("America/New_York", reopened.uiState.value.fixedStatisticsZoneId)
+            assertEquals(DayOfWeek.SUNDAY, reopened.uiState.value.firstDayOfWeek)
+            assertEquals(ZoneId.of("America/New_York"), reopened.uiState.value.statisticsZoneId)
+        } finally {
+            instrumentation.runOnMainSync { store.clear() }
+            context.deleteDatabase(name)
+            context.getSharedPreferences(preferenceName, 0).edit().clear().commit()
+        }
+    }
+
+    @Test
+    fun typeCanBeCreatedEditedSortedAndArchivedWhileRunning() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val context = instrumentation.targetContext
+        val name = "type-management-view-model-test.db"
+        context.deleteDatabase(name)
+        val database = TimeLoggerDatabase.open(context, name)
+        val store = ViewModelStore()
+        lateinit var viewModel: TimeLoggerViewModel
+        instrumentation.runOnMainSync {
+            viewModel = TimeLoggerViewModel { database }
+            store.put("test", viewModel)
+        }
+        try {
+            awaitState { viewModel.uiState.value.activityTypes.size == 4 }
+            instrumentation.runOnMainSync { viewModel.createActivityType("阅读", "meeting", 0xFF112233) }
+            awaitState { viewModel.uiState.value.activityTypes.size == 5 }
+            val id = viewModel.uiState.value.activityTypes.last().id
+            instrumentation.runOnMainSync { viewModel.updateActivityType(id, "学习", "walk", 0xFF445566) }
+            awaitState { viewModel.uiState.value.activityTypes.last().name == "学习" }
+            assertEquals("walk", viewModel.uiState.value.activityTypes.last().iconKey)
+            assertEquals(0xFF445566, viewModel.uiState.value.activityTypes.last().colorArgb)
+            instrumentation.runOnMainSync { viewModel.moveActivityType(id, -1) }
+            awaitState { viewModel.uiState.value.activityTypes[3].id == id }
+            instrumentation.runOnMainSync { viewModel.toggleActivity(id) }
+            awaitState { viewModel.uiState.value.activityTypes.first { it.id == id }.isRunning }
+            instrumentation.runOnMainSync { viewModel.archiveActivityType(id) }
+            awaitState { viewModel.uiState.value.managedActivityTypes.first { it.id == id }.isArchived }
+            assertFalse(viewModel.uiState.value.activityTypes.any { it.id == id })
+            assertTrue(database.activitySessionDao().getAll().first { it.activityTypeId == id }.endedAtUtc != null)
+        } finally {
+            instrumentation.runOnMainSync { store.clear() }
+            context.deleteDatabase(name)
+        }
+    }
+
     @Test
     fun repeatedRefreshWhileLoadingDoesNotQueueAnotherDatabaseOperation() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()

@@ -21,6 +21,14 @@ class RoomActivityRepository(private val database: TimeLoggerDatabase) : Activit
 
     fun getActivityTypes(): List<ActivityType> = activityTypeDao.getAll().map { it.toDomain() }
 
+    fun insertActivityType(activityType: ActivityType) {
+        activityTypeDao.insert(activityType.toEntity())
+    }
+
+    fun updateActivityType(activityType: ActivityType) {
+        activityTypeDao.update(activityType.toEntity())
+    }
+
     fun getSessions(): List<ActivitySession> = activitySessionDao.getAll().map { it.toDomain() }
 
     override fun getActivityTypeById(id: String): ActivityType? =
@@ -44,6 +52,17 @@ class RoomActivityRepository(private val database: TimeLoggerDatabase) : Activit
 }
 
 private fun ActivityTypeEntity.toDomain(): ActivityType = ActivityType(
+    id = id,
+    name = name,
+    iconKey = iconKey,
+    colorArgb = colorArgb,
+    isArchived = isArchived,
+    sortOrder = sortOrder,
+    createdAtUtc = createdAtUtc,
+    updatedAtUtc = updatedAtUtc,
+)
+
+private fun ActivityType.toEntity(): ActivityTypeEntity = ActivityTypeEntity(
     id = id,
     name = name,
     iconKey = iconKey,

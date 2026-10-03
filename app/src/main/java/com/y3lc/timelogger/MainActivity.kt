@@ -32,6 +32,8 @@ import com.y3lc.timelogger.ui.TimeLoggerViewModel
 import com.y3lc.timelogger.ui.RecordScreen
 import com.y3lc.timelogger.ui.StatisticsScreen
 import com.y3lc.timelogger.ui.StatisticsRange
+import com.y3lc.timelogger.ui.SettingsScreen
+import java.time.DayOfWeek
 import kotlinx.coroutines.delay
 
 class MainActivity : ComponentActivity() {
@@ -55,14 +57,38 @@ class MainActivity : ComponentActivity() {
                 }
             }
             MaterialTheme {
-                TimeLoggerApp(uiState, viewModel::selectTab, viewModel::toggleActivity, viewModel::selectStatisticsRange, viewModel::refresh)
+                TimeLoggerApp(
+                    uiState,
+                    viewModel::selectTab,
+                    viewModel::toggleActivity,
+                    viewModel::selectStatisticsRange,
+                    viewModel::refresh,
+                    viewModel::saveStatisticsZone,
+                    viewModel::setWeekStart,
+                    viewModel::createActivityType,
+                    viewModel::updateActivityType,
+                    viewModel::moveActivityType,
+                    viewModel::archiveActivityType,
+                )
             }
         }
     }
 }
 
 @Composable
-private fun TimeLoggerApp(uiState: TimeLoggerUiState, onTabSelected: (MainTab) -> Unit, onToggle: (String) -> Unit, onRangeSelected: (StatisticsRange) -> Unit, onRetry: () -> Unit) {
+private fun TimeLoggerApp(
+    uiState: TimeLoggerUiState,
+    onTabSelected: (MainTab) -> Unit,
+    onToggle: (String) -> Unit,
+    onRangeSelected: (StatisticsRange) -> Unit,
+    onRetry: () -> Unit,
+    onZoneSaved: (String?) -> Unit,
+    onWeekStartChanged: (DayOfWeek) -> Unit,
+    onTypeCreated: (String, String, Long) -> Unit,
+    onTypeUpdated: (String, String, String, Long) -> Unit,
+    onTypeMoved: (String, Int) -> Unit,
+    onTypeArchived: (String) -> Unit,
+) {
     Scaffold(
         bottomBar = {
             NavigationBar {
@@ -78,12 +104,24 @@ private fun TimeLoggerApp(uiState: TimeLoggerUiState, onTabSelected: (MainTab) -
             }
         },
     ) { padding ->
-        MainScreen(uiState, padding, onToggle, onRangeSelected, onRetry)
+        MainScreen(uiState, padding, onToggle, onRangeSelected, onRetry, onZoneSaved, onWeekStartChanged, onTypeCreated, onTypeUpdated, onTypeMoved, onTypeArchived)
     }
 }
 
 @Composable
-private fun MainScreen(uiState: TimeLoggerUiState, padding: PaddingValues, onToggle: (String) -> Unit, onRangeSelected: (StatisticsRange) -> Unit, onRetry: () -> Unit) {
+private fun MainScreen(
+    uiState: TimeLoggerUiState,
+    padding: PaddingValues,
+    onToggle: (String) -> Unit,
+    onRangeSelected: (StatisticsRange) -> Unit,
+    onRetry: () -> Unit,
+    onZoneSaved: (String?) -> Unit,
+    onWeekStartChanged: (DayOfWeek) -> Unit,
+    onTypeCreated: (String, String, Long) -> Unit,
+    onTypeUpdated: (String, String, String, Long) -> Unit,
+    onTypeMoved: (String, Int) -> Unit,
+    onTypeArchived: (String) -> Unit,
+) {
     Column(Modifier.fillMaxSize().padding(padding).padding(16.dp)) {
         Text(
             uiState.selectedTab.label,
@@ -101,7 +139,16 @@ private fun MainScreen(uiState: TimeLoggerUiState, padding: PaddingValues, onTog
             when (uiState.selectedTab) {
                 MainTab.RECORD -> RecordScreen(uiState, onToggle, Modifier.weight(1f).padding(top = 16.dp))
                 MainTab.STATISTICS -> StatisticsScreen(uiState, onRangeSelected, Modifier.weight(1f).padding(top = 16.dp))
-                MainTab.SETTINGS -> Unit
+                MainTab.SETTINGS -> SettingsScreen(
+                    uiState,
+                    onZoneSaved,
+                    onWeekStartChanged,
+                    onTypeCreated,
+                    onTypeUpdated,
+                    onTypeMoved,
+                    onTypeArchived,
+                    Modifier.weight(1f).padding(top = 16.dp),
+                )
             }
         }
     }
