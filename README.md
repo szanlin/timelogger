@@ -14,7 +14,7 @@ TimeLogger 是一款离线 Android 时间记录应用。按活动类型开始或
 
 ## 构建与测试
 
-环境要求：JDK 11、Android SDK，以及可选的 Android 模拟器或真机。
+环境要求：JDK 21、Android SDK，以及可选的 Android 模拟器或真机。项目的 Java 源码兼容级别为 11，但构建由 JDK 21 运行。
 
 ```bash
 ./gradlew testDebugUnitTest assembleDebug
