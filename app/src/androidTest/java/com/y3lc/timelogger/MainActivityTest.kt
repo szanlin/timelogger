@@ -4,6 +4,10 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.assertContentDescriptionContains
+import androidx.compose.ui.test.assert
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
@@ -63,6 +67,17 @@ class MainActivityTest {
             }.isSuccess
         }
         composeTestRule.onNodeWithTag("type-archived-$edited").assertExists()
+    }
+
+    @Test
+    fun typeColorSelectionExposesSelectedButtonSemantics() {
+        composeTestRule.onNodeWithTag("nav-settings").performClick()
+        composeTestRule.onNodeWithTag("type-add").performClick()
+        val selectedColor = 0xFF4A8D69
+        val colorNode = composeTestRule.onNodeWithTag("type-color-$selectedColor")
+        colorNode.performClick()
+        colorNode.assertIsSelected()
+        colorNode.assert(SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Button))
     }
 
     @Test
