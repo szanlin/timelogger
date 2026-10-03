@@ -4,6 +4,7 @@ import com.y3lc.timelogger.domain.model.ActivitySession
 import com.y3lc.timelogger.domain.model.ActivityType
 import java.time.Instant
 import java.time.Duration
+import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.ZoneId
 import org.junit.Assert.assertEquals
@@ -48,6 +49,83 @@ class TimeLoggerStateTest {
         assertEquals(emptyList<Any>(), summary.ranking)
         assertEquals(emptyList<Any>(), summary.timeline)
         assertEquals(Duration.ZERO, summary.totalDuration)
+    }
+
+    @Test
+    fun weekChartStartsOnConfiguredSundayAndSplitsTypesAtLocalMidnight() {
+        val zone = ZoneId.of("Asia/Shanghai")
+        val sessions = listOf(
+            activitySession("walk").copy(startedAtUtc = Instant.parse("2026-09-26T15:00:00Z"), endedAtUtc = Instant.parse("2026-09-26T17:00:00Z")),
+            activitySession("sleep").copy(startedAtUtc = Instant.parse("2026-09-26T16:30:00Z"), endedAtUtc = Instant.parse("2026-09-26T17:30:00Z")),
+            activitySession("walk").copy(id = "next-week", startedAtUtc = Instant.parse("2026-10-03T16:00:00Z"), endedAtUtc = Instant.parse("2026-10-03T17:00:00Z")),
+        )
+
+        val summary = buildPeriodSummary(
+            listOf(activityType("walk", "走路", 0), activityType("sleep", "睡觉", 1)),
+            sessions,
+            StatisticsRange.WEEK,
+            LocalDate.parse("2026-10-01"),
+            zone,
+            Instant.parse("2026-10-05T00:00:00Z"),
+            DayOfWeek.SUNDAY,
+        )
+
+        assertEquals(7, summary.dailyBreakdown.size)
+        assertEquals(LocalDate.parse("2026-09-27"), summary.dailyBreakdown.first().date)
+        assertEquals(LocalDate.parse("2026-10-03"), summary.dailyBreakdown.last().date)
+        assertEquals(Duration.ofMinutes(90), summary.dailyBreakdown.first().coverageDuration)
+        assertEquals(mapOf("walk" to Duration.ofHours(1), "sleep" to Duration.ofHours(1)), summary.dailyBreakdown.first().durationByTypeId)
+        assertEquals(Duration.ZERO, summary.dailyBreakdown[1].coverageDuration)
+        assertEquals(Duration.ZERO, summary.dailyBreakdown.last().totalDuration)
+    }
+
+    @Test
+    fun monthTrendIncludesEveryCalendarDayAndKeepsCoverageDistinctFromParallelTotal() {
+        val sessions = listOf(
+            activitySession("walk").copy(startedAtUtc = Instant.parse("2024-03-10T06:00:00Z"), endedAtUtc = Instant.parse("2024-03-10T08:00:00Z")),
+            activitySession("sleep").copy(startedAtUtc = Instant.parse("2024-03-10T07:00:00Z"), endedAtUtc = Instant.parse("2024-03-10T09:00:00Z")),
+        )
+
+        val summary = buildPeriodSummary(
+            listOf(activityType("walk", "走路", 0), activityType("sleep", "睡觉", 1)),
+            sessions,
+            StatisticsRange.MONTH,
+            LocalDate.parse("2024-03-20"),
+            ZoneId.of("America/New_York"),
+            Instant.parse("2024-04-01T04:00:00Z"),
+        )
+
+        assertEquals(31, summary.dailyBreakdown.size)
+        assertEquals(LocalDate.parse("2024-03-10"), summary.dailyBreakdown[9].date)
+        assertEquals(Duration.ofHours(3), summary.dailyBreakdown[9].coverageDuration)
+        assertEquals(Duration.ofHours(4), summary.dailyBreakdown[9].totalDuration)
+        assertEquals(Duration.ZERO, summary.dailyBreakdown[10].coverageDuration)
+    }
+
+    @Test
+    fun currentMonthTrendStopsAtTodayInsteadOfPlottingFutureZeros() {
+        val sessions = listOf(
+            activitySession("walk").copy(startedAtUtc = Instant.parse("2026-10-03T02:00:00Z"), endedAtUtc = Instant.parse("2026-10-03T03:00:00Z")),
+        )
+        val summary = buildPeriodSummary(
+            listOf(activityType("walk", "走路", 0)),
+            sessions,
+            StatisticsRange.MONTH,
+            LocalDate.parse("2026-10-03"),
+            ZoneId.of("Asia/Shanghai"),
+            Instant.parse("2026-10-03T04:00:00Z"),
+        )
+
+        assertEquals(3, summary.dailyBreakdown.size)
+        assertEquals(LocalDate.parse("2026-10-03"), summary.dailyBreakdown.last().date)
+    }
+
+    @Test
+    fun emptyWeekAndMonthHaveNoChartData() {
+        for (range in listOf(StatisticsRange.WEEK, StatisticsRange.MONTH)) {
+            val summary = buildPeriodSummary(emptyList(), emptyList(), range, LocalDate.parse("2026-10-02"), ZoneId.of("UTC"), now)
+            assertEquals(emptyList<Any>(), summary.dailyBreakdown)
+        }
     }
 
     @Test

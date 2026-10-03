@@ -35,6 +35,14 @@ data class TypeRanking(val typeId: String, val name: String, val colorArgb: Long
 
 data class TimelineItem(val sessionId: String, val name: String, val colorArgb: Long, val interval: UtcInterval, val isRunning: Boolean)
 
+data class DailyBreakdown(
+    val date: LocalDate,
+    val coverageDuration: Duration,
+    val durationByTypeId: Map<String, Duration>,
+) {
+    val totalDuration: Duration = durationByTypeId.values.fold(Duration.ZERO, Duration::plus)
+}
+
 data class PeriodSummary(
     val dateLabel: String = "",
     val interval: UtcInterval? = null,
@@ -42,6 +50,7 @@ data class PeriodSummary(
     val totalDuration: Duration = Duration.ZERO,
     val ranking: List<TypeRanking> = emptyList(),
     val timeline: List<TimelineItem> = emptyList(),
+    val dailyBreakdown: List<DailyBreakdown> = emptyList(),
 )
 
 data class TimeLoggerUiState(
@@ -103,6 +112,14 @@ fun buildPeriodSummary(
         val type = typesById[session.activityTypeId]
         TimelineItem(session.id, type?.name ?: "未知类型", type?.colorArgb ?: 0xFF777777, clipped, session.endedAtUtc == null)
     }.sortedWith(compareBy<TimelineItem> { it.interval.start }.thenBy { it.sessionId })
+    val lastChartDate = if (range == StatisticsRange.MONTH) minOf(endDate, nowUtc.atZone(zoneId).toLocalDate()) else endDate
+    val dailyBreakdown = if (range == StatisticsRange.DAY || ranking.isEmpty()) emptyList() else
+        generateSequence(startDate) { date -> date.plusDays(1) }
+            .takeWhile { date -> !date.isAfter(lastChartDate) }
+            .map { date ->
+                val daily = StatisticsCalculator.calculate(sessions, StatisticsPeriod.day(date, zoneId), nowUtc)
+                DailyBreakdown(date, daily.coverageDuration, daily.durationByActivityTypeId)
+            }.toList()
     return PeriodSummary(
         dateLabel = if (startDate == endDate) "$startDate" else "$startDate — $endDate",
         interval = period.interval,
@@ -110,6 +127,7 @@ fun buildPeriodSummary(
         totalDuration = ranking.fold(Duration.ZERO) { total, item -> total.plus(item.duration) },
         ranking = ranking,
         timeline = timeline,
+        dailyBreakdown = dailyBreakdown,
     )
 }
 

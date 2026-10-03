@@ -95,6 +95,31 @@ class MainActivityTest {
     }
 
     @Test
+    fun recordedTimeAppearsInWeekAndMonthCharts() {
+        composeTestRule.waitUntil(5_000) {
+            composeTestRule.onAllNodes(androidx.compose.ui.test.hasTestTag("activity-walk")).fetchSemanticsNodes().isNotEmpty()
+        }
+        composeTestRule.onNodeWithTag("activity-walk").performClick()
+        composeTestRule.waitUntil(5_000) {
+            runCatching { composeTestRule.onNodeWithTag("activity-walk").assertContentDescriptionContains("进行中", substring = true) }.isSuccess
+        }
+        Thread.sleep(100)
+        composeTestRule.onNodeWithTag("activity-walk").performClick()
+        composeTestRule.waitUntil(5_000) {
+            runCatching { composeTestRule.onNodeWithTag("activity-walk").assertContentDescriptionContains("点击开始", substring = true) }.isSuccess
+        }
+        composeTestRule.onNodeWithTag("nav-statistics").performClick()
+
+        composeTestRule.onNodeWithTag("period-week").performClick()
+        composeTestRule.onNodeWithTag("statistics-list").performScrollToNode(androidx.compose.ui.test.hasTestTag("statistics-week-chart"))
+        composeTestRule.onNodeWithTag("statistics-week-chart").assertExists()
+
+        composeTestRule.onNodeWithTag("period-month").performClick()
+        composeTestRule.onNodeWithTag("statistics-list").performScrollToNode(androidx.compose.ui.test.hasTestTag("statistics-month-chart"))
+        composeTestRule.onNodeWithTag("statistics-month-chart").assertExists()
+    }
+
+    @Test
     fun bottomNavigationSwitchesBetweenThreeScreens() {
         composeTestRule.onNodeWithTag("screen-title").assertTextEquals("记录")
 

@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Card
@@ -27,6 +28,9 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
@@ -98,7 +102,7 @@ private fun activityIcon(iconKey: String): Int = when (iconKey) {
 
 @Composable
 fun StatisticsScreen(state: TimeLoggerUiState, onRangeSelected: (StatisticsRange) -> Unit, modifier: Modifier = Modifier) {
-    LazyColumn(modifier, verticalArrangement = Arrangement.spacedBy(16.dp)) {
+    LazyColumn(modifier.testTag("statistics-list"), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 StatisticsRange.entries.forEach { range ->
@@ -113,6 +117,12 @@ fun StatisticsScreen(state: TimeLoggerUiState, onRangeSelected: (StatisticsRange
             item { Text("这个周期还没有记录，去记录页开始一项活动吧", modifier = Modifier.testTag("statistics-empty")) }
         } else {
             item { DurationSummary(state.statistics) }
+            if (state.statisticsRange == StatisticsRange.WEEK) {
+                item { WeeklyStackedChart(state.statistics) }
+            }
+            if (state.statisticsRange == StatisticsRange.MONTH) {
+                item { MonthlyTrendChart(state.statistics) }
+            }
             item { Text("类型累计排行", style = MaterialTheme.typography.titleMedium) }
             items(state.statistics.ranking, key = { it.typeId }) { type ->
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -130,6 +140,112 @@ fun StatisticsScreen(state: TimeLoggerUiState, onRangeSelected: (StatisticsRange
                 item { Timeline(state.statistics, state.statisticsZoneId) }
             }
         }
+    }
+}
+
+@Composable
+private fun WeeklyStackedChart(summary: PeriodSummary) {
+    val days = summary.dailyBreakdown
+    if (days.isEmpty()) return
+    val maxMillis = days.maxOf { it.totalDuration.toMillis() }.coerceAtLeast(1)
+    val colorsByTypeId = summary.ranking.associate { it.typeId to Color(it.colorArgb) }
+    Column(Modifier.fillMaxWidth().testTag("statistics-week-chart"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("每日类型堆叠时长", style = MaterialTheme.typography.titleMedium)
+        Text("单日最高 ${formatDuration(Duration.ofMillis(maxMillis))}", style = MaterialTheme.typography.labelSmall)
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            days.forEach { day ->
+                val description = "${day.date}，类型累计 ${formatDuration(day.totalDuration)}" +
+                    day.durationByTypeId.entries.joinToString(separator = "", prefix = "，") { (typeId, duration) ->
+                        "${summary.ranking.firstOrNull { it.typeId == typeId }?.name ?: "未知类型"} ${formatDuration(duration)}，"
+                    }
+                Column(Modifier.weight(1f).semantics { contentDescription = description }, horizontalAlignment = Alignment.CenterHorizontally) {
+                    Canvas(Modifier.fillMaxWidth().height(112.dp)) {
+                        val barWidth = 18.dp.toPx().coerceAtMost(size.width)
+                        val barLeft = (size.width - barWidth) / 2f
+                        drawRoundRect(
+                            color = Color.LightGray.copy(alpha = 0.25f),
+                            topLeft = Offset(barLeft, 0f),
+                            size = Size(barWidth, size.height),
+                            cornerRadius = CornerRadius(4.dp.toPx()),
+                        )
+                        var bottom = size.height
+                        summary.ranking.forEach { type ->
+                            val millis = day.durationByTypeId[type.typeId]?.toMillis() ?: 0L
+                            if (millis > 0) {
+                                val barHeight = size.height * millis.toFloat() / maxMillis
+                                bottom -= barHeight
+                                drawRect(colorsByTypeId.getValue(type.typeId), Offset(barLeft, bottom), Size(barWidth, barHeight))
+                            }
+                        }
+                    }
+                    Text("周${"一二三四五六日"[day.date.dayOfWeek.value - 1]}", style = MaterialTheme.typography.labelSmall)
+                    Text("${day.date.monthValue}/${day.date.dayOfMonth}", style = MaterialTheme.typography.labelSmall)
+                }
+            }
+        }
+        summary.ranking.forEach { type ->
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Canvas(Modifier.size(10.dp)) { drawCircle(Color(type.colorArgb)) }
+                Text(type.name, style = MaterialTheme.typography.labelSmall)
+            }
+        }
+    }
+}
+
+@Composable
+private fun MonthlyTrendChart(summary: PeriodSummary) {
+    val days = summary.dailyBreakdown
+    if (days.isEmpty()) return
+    val maxMillis = days.maxOf { maxOf(it.coverageDuration.toMillis(), it.totalDuration.toMillis()) }.coerceAtLeast(1)
+    val coverageColor = MaterialTheme.colorScheme.primary
+    val totalColor = MaterialTheme.colorScheme.tertiary
+    val description = days.joinToString("；") { day ->
+        "${day.date.dayOfMonth}日，覆盖 ${formatDuration(day.coverageDuration)}，类型累计 ${formatDuration(day.totalDuration)}"
+    }
+    Column(Modifier.fillMaxWidth().testTag("statistics-month-chart"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("每日时长趋势", style = MaterialTheme.typography.titleMedium)
+        Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            TrendLegend("覆盖时长", coverageColor)
+            TrendLegend("类型累计", totalColor)
+        }
+        Text("单日最高 ${formatDuration(Duration.ofMillis(maxMillis))}", style = MaterialTheme.typography.labelSmall)
+        Canvas(Modifier.fillMaxWidth().height(160.dp).semantics { contentDescription = description }) {
+            val chartHeight = size.height - 8.dp.toPx()
+            for (step in 0..2) {
+                val y = chartHeight * step / 2f
+                drawLine(Color.LightGray.copy(alpha = 0.35f), Offset(0f, y), Offset(size.width, y), 1.dp.toPx())
+            }
+            fun drawTrend(values: List<Duration>, color: Color, dashed: Boolean) {
+                val points = values.mapIndexed { index, duration ->
+                    Offset(
+                        size.width * index / (values.size - 1).coerceAtLeast(1),
+                        chartHeight * (1f - duration.toMillis().toFloat() / maxMillis),
+                    )
+                }
+                val path = Path().apply {
+                    points.forEachIndexed { index, point ->
+                        if (index == 0) moveTo(point.x, point.y) else lineTo(point.x, point.y)
+                    }
+                }
+                drawPath(path, color, style = Stroke(width = 2.dp.toPx(), pathEffect = if (dashed) PathEffect.dashPathEffect(floatArrayOf(8.dp.toPx(), 5.dp.toPx())) else null))
+                points.forEach { point -> drawCircle(color, radius = 2.dp.toPx(), center = point) }
+            }
+            drawTrend(days.map(DailyBreakdown::totalDuration), totalColor, false)
+            drawTrend(days.map(DailyBreakdown::coverageDuration), coverageColor, true)
+        }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text("${days.first().date.dayOfMonth}日", style = MaterialTheme.typography.labelSmall)
+            if (days.size > 2) Text("${days[days.size / 2].date.dayOfMonth}日", style = MaterialTheme.typography.labelSmall)
+            if (days.size > 1) Text("${days.last().date.dayOfMonth}日", style = MaterialTheme.typography.labelSmall)
+        }
+    }
+}
+
+@Composable
+private fun TrendLegend(label: String, color: Color) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Canvas(Modifier.width(16.dp).height(3.dp)) { drawRect(color) }
+        Text(label, style = MaterialTheme.typography.labelSmall)
     }
 }
 
