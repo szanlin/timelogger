@@ -3,10 +3,12 @@ package com.y3lc.timelogger.ui
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
@@ -59,57 +61,61 @@ fun RecordScreen(state: TimeLoggerUiState, onToggle: (String) -> Unit, onSession
     if (historyVisible) {
         HistoryDialog(state, onSessionSaved) { historyVisible = false }
     }
-    LazyVerticalGrid(
-        columns = GridCells.Adaptive(minSize = 156.dp),
-        modifier = modifier.testTag("record-list"),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
-    ) {
-        item(span = { GridItemSpan(maxLineSpan) }) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text("今天", style = MaterialTheme.typography.headlineSmall)
-                    Text(state.today.dateLabel, style = MaterialTheme.typography.bodyMedium)
-                    Text("统计时区 ${state.statisticsZoneId.id}", style = MaterialTheme.typography.bodySmall)
-                }
-                IconButton(
-                    onClick = { historyVisible = true },
-                    enabled = !state.isSaving && state.errorMessage == null,
-                    modifier = Modifier.size(48.dp).testTag("history-open"),
-                ) {
-                    Icon(painterResource(R.drawable.ic_tab_record), contentDescription = "查看历史记录")
-                }
-            }
-        }
-        item(span = { GridItemSpan(maxLineSpan) }) {
-            Card(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("覆盖时长", style = MaterialTheme.typography.labelLarge)
-                    Text(formatDuration(state.today.coverageDuration), style = MaterialTheme.typography.displaySmall)
-                    Text("类型累计时长 ${formatDuration(state.today.totalDuration)}", style = MaterialTheme.typography.bodyMedium)
-                    Text("并行活动分别累计，覆盖时长只计算一次", style = MaterialTheme.typography.bodySmall)
-                }
-            }
-        }
-        if (state.activityTypes.isEmpty()) {
-            item(span = { GridItemSpan(maxLineSpan) }) { Text("暂无活动类型，请前往设置创建首个类型") }
-        }
-        gridItems(state.activityTypes, key = ActivityTypeItem::id) { type ->
-            ActivityCard(type, !state.isSaving && state.errorMessage == null, { onToggle(type.id) }, Modifier.heightIn(min = 144.dp))
-        }
-        item(span = { GridItemSpan(maxLineSpan) }) {
-            Card(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("当日时间轴", style = MaterialTheme.typography.titleMedium)
-                    if (state.today.timeline.isEmpty()) {
-                        Text("点击活动图标，开始记录今天", style = MaterialTheme.typography.bodyMedium)
-                    } else {
-                        Timeline(state.today, state.statisticsZoneId)
+    BoxWithConstraints(modifier) {
+        val columnCount = ((maxWidth.value + 12f) / 168f).toInt().coerceAtLeast(2)
+        LazyVerticalGrid(
+            columns = GridCells.Fixed(columnCount),
+            modifier = Modifier.fillMaxSize().testTag("record-list"),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            item(span = { GridItemSpan(maxLineSpan) }) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("记录", modifier = Modifier.testTag("screen-title"), style = MaterialTheme.typography.headlineMedium)
+                        Text("今天", style = MaterialTheme.typography.headlineSmall)
+                        Text(state.today.dateLabel, style = MaterialTheme.typography.bodyMedium)
+                        Text("统计时区 ${state.statisticsZoneId.id}", style = MaterialTheme.typography.bodySmall)
+                    }
+                    IconButton(
+                        onClick = { historyVisible = true },
+                        enabled = !state.isSaving && state.errorMessage == null,
+                        modifier = Modifier.size(48.dp).testTag("history-open"),
+                    ) {
+                        Icon(painterResource(R.drawable.ic_tab_record), contentDescription = "查看历史记录")
                     }
                 }
             }
+            item(span = { GridItemSpan(maxLineSpan) }) {
+                Card(Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("覆盖时长", style = MaterialTheme.typography.labelLarge)
+                        Text(formatDuration(state.today.coverageDuration), style = MaterialTheme.typography.displaySmall)
+                        Text("类型累计时长 ${formatDuration(state.today.totalDuration)}", style = MaterialTheme.typography.bodyMedium)
+                        Text("并行活动分别累计，覆盖时长只计算一次", style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            }
+            if (state.activityTypes.isEmpty()) {
+                item(span = { GridItemSpan(maxLineSpan) }) { Text("暂无活动类型，请前往设置创建首个类型") }
+            }
+            gridItems(state.activityTypes, key = ActivityTypeItem::id) { type ->
+                ActivityCard(type, !state.isSaving && state.errorMessage == null, { onToggle(type.id) }, Modifier.heightIn(min = 144.dp))
+            }
+            item(span = { GridItemSpan(maxLineSpan) }) {
+                Card(Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text("当日时间轴", style = MaterialTheme.typography.titleMedium)
+                        if (state.today.timeline.isEmpty()) {
+                            Text("点击活动图标，开始记录今天", style = MaterialTheme.typography.bodyMedium)
+                        } else {
+                            Timeline(state.today, state.statisticsZoneId)
+                        }
+                    }
+                }
+            }
+            item(span = { GridItemSpan(maxLineSpan) }) { Spacer(Modifier.height(8.dp)) }
         }
-        item(span = { GridItemSpan(maxLineSpan) }) { Spacer(Modifier.height(8.dp)) }
     }
 }
 
@@ -152,6 +158,7 @@ fun StatisticsScreen(state: TimeLoggerUiState, onRangeSelected: (StatisticsRange
     LazyColumn(modifier.testTag("statistics-list"), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         item {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("统计", modifier = Modifier.testTag("screen-title"), style = MaterialTheme.typography.headlineMedium)
                 SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
                     StatisticsRange.entries.forEachIndexed { index, range ->
                         SegmentedButton(

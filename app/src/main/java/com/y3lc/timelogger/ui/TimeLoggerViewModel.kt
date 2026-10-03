@@ -90,10 +90,13 @@ class TimeLoggerViewModel(
         }
     }
 
-    fun createActivityType(name: String, iconKey: String, colorArgb: Long) {
-        val normalized = validateActivityType(name, iconKey) ?: return
+    fun createActivityType(name: String, iconKey: String, colorArgb: Long, onResult: (String?) -> Unit = {}) {
+        val normalized = validateActivityType(name, iconKey) ?: run {
+            onResult("请输入类型名称并选择图标")
+            return
+        }
         val id = UUID.randomUUID().toString()
-        runOperation("类型未能新增，请重试") { repository ->
+        runOperation("类型未能新增，请重试", onResult) { repository ->
             repository.inTransaction {
                 val now = Instant.now()
                 val sortOrder = (repository.getActivityTypes().maxOfOrNull { it.sortOrder } ?: -1) + 1
@@ -102,9 +105,12 @@ class TimeLoggerViewModel(
         }
     }
 
-    fun updateActivityType(id: String, name: String, iconKey: String, colorArgb: Long) {
-        val normalized = validateActivityType(name, iconKey) ?: return
-        runOperation("类型未能更新，请重试") { repository ->
+    fun updateActivityType(id: String, name: String, iconKey: String, colorArgb: Long, onResult: (String?) -> Unit = {}) {
+        val normalized = validateActivityType(name, iconKey) ?: run {
+            onResult("请输入类型名称并选择图标")
+            return
+        }
+        runOperation("类型未能更新，请重试", onResult) { repository ->
             repository.inTransaction {
                 val existing = repository.getActivityTypeById(id)
                 check(existing != null && !existing.isArchived) { "类型不存在或已归档" }
@@ -199,10 +205,18 @@ class TimeLoggerViewModel(
     }
 
     private fun runOperation(errorMessage: String, operation: ((RoomActivityRepository) -> Unit)?) {
-        if (uiState.value.isSaving) return
+        runOperation(errorMessage, {}, operation)
+    }
+
+    private fun runOperation(errorMessage: String, onResult: (String?) -> Unit, operation: ((RoomActivityRepository) -> Unit)?) {
+        if (uiState.value.isSaving) {
+            onResult("正在保存，请稍候")
+            return
+        }
         mutableUiState.update { it.copy(isSaving = true) }
         viewModelScope.launch {
             var operationCompleted = false
+            var resultError: String? = null
             try {
                 val snapshot = withContext(Dispatchers.IO) {
                     val currentRepository = getRepository()
@@ -225,9 +239,11 @@ class TimeLoggerViewModel(
                 // 写入完成后只重试读取，避免重复新增、归档或移动类型。
                 failedOperation = PendingOperation(retryErrorMessage, if (operationCompleted) null else operation)
                 mutableUiState.update { it.copy(isLoading = false, errorMessage = retryErrorMessage) }
+                resultError = retryErrorMessage
             } finally {
                 mutableUiState.update { it.copy(isSaving = false) }
             }
+            onResult(resultError)
         }
     }
 

@@ -1,7 +1,10 @@
 package com.y3lc.timelogger
 
+import android.content.pm.ActivityInfo
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.requiredWidth
 import androidx.compose.foundation.layout.width
 import androidx.activity.compose.setContent
 import androidx.compose.ui.Modifier
@@ -15,12 +18,15 @@ import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertContentDescriptionContains
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertWidthIsAtLeast
+import androidx.compose.ui.test.hasAnyAncestor
+import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.test.performScrollToNode
+import androidx.compose.ui.test.performScrollTo
 import androidx.lifecycle.ViewModelProvider
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.SemanticsProperties
@@ -31,6 +37,7 @@ import com.y3lc.timelogger.ui.TimeLoggerViewModel
 import com.y3lc.timelogger.ui.ActivityTypeItem
 import com.y3lc.timelogger.ui.SettingsScreen
 import com.y3lc.timelogger.ui.TimeLoggerUiState
+import com.y3lc.timelogger.ui.RecordScreen
 import com.y3lc.timelogger.data.local.TimeLoggerDatabase
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -157,6 +164,96 @@ class MainActivityTest {
     }
 
     @Test
+    fun typeEditorKeepsDraftAfterRealInsertFailureAndCanRetry() {
+        val name = "阅读${System.nanoTime()}"
+        val selectedColor = 0xFF4A8D69
+        val database = TimeLoggerDatabase.open(InstrumentationRegistry.getInstrumentation().targetContext)
+        try {
+            database.openHelper.writableDatabase.execSQL("CREATE TRIGGER reject_type_insert BEFORE INSERT ON activity_types BEGIN SELECT RAISE(ABORT, '测试新增失败'); END")
+            composeTestRule.onNodeWithTag("nav-settings").performClick()
+            composeTestRule.onNodeWithTag("type-add").performClick()
+            composeTestRule.onNodeWithTag("type-name-input").performTextInput(name)
+            composeTestRule.onNodeWithTag("type-icon-sleep").performClick()
+            composeTestRule.onNodeWithTag("type-color-$selectedColor").performClick()
+            composeTestRule.onNodeWithTag("type-save").performClick()
+            composeTestRule.waitUntil(5_000) {
+                !viewModel.uiState.value.isSaving && viewModel.uiState.value.errorMessage != null
+            }
+            composeTestRule.onNodeWithTag("type-name-input").assertTextContains(name)
+            composeTestRule.onNodeWithTag("type-icon-sleep").assertIsSelected()
+            composeTestRule.onNodeWithTag("type-color-$selectedColor").assertIsSelected()
+            composeTestRule.onNodeWithTag("type-save-error").assertExists()
+            assertFalse(viewModel.uiState.value.managedActivityTypes.any { it.name == name })
+
+            database.openHelper.writableDatabase.execSQL("DROP TRIGGER reject_type_insert")
+            composeTestRule.onNodeWithTag("type-save").performClick()
+            awaitStableState()
+            composeTestRule.onNodeWithTag("type-name-input").assertDoesNotExist()
+            assertEquals(name, viewModel.uiState.value.managedActivityTypes.single { it.name == name }.name)
+        } finally {
+            database.openHelper.writableDatabase.execSQL("DROP TRIGGER IF EXISTS reject_type_insert")
+            database.close()
+            if (viewModel.uiState.value.errorMessage != null) {
+                composeTestRule.runOnUiThread { viewModel.refresh() }
+                awaitStableState()
+            }
+        }
+    }
+
+    @Test
+    fun typeEditorKeepsDraftAfterRealUpdateFailureAndCanRetry() {
+        val name = "休息${System.nanoTime()}"
+        val selectedColor = 0xFF4A8D69
+        val database = TimeLoggerDatabase.open(InstrumentationRegistry.getInstrumentation().targetContext)
+        try {
+            database.openHelper.writableDatabase.execSQL("CREATE TRIGGER reject_type_update BEFORE UPDATE ON activity_types BEGIN SELECT RAISE(ABORT, '测试更新失败'); END")
+            composeTestRule.onNodeWithTag("nav-settings").performClick()
+            composeTestRule.onNodeWithTag("settings-list").performScrollToNode(hasTestTag("type-edit-睡觉"))
+            composeTestRule.onNodeWithTag("type-edit-睡觉").performClick()
+            composeTestRule.onNodeWithTag("type-name-input").performTextReplacement(name)
+            composeTestRule.onNodeWithTag("type-icon-walk").performClick()
+            composeTestRule.onNodeWithTag("type-color-$selectedColor").performClick()
+            composeTestRule.onNodeWithTag("type-save").performClick()
+            composeTestRule.waitUntil(5_000) {
+                !viewModel.uiState.value.isSaving && viewModel.uiState.value.errorMessage != null
+            }
+            composeTestRule.onNodeWithTag("type-name-input").assertTextContains(name)
+            composeTestRule.onNodeWithTag("type-icon-walk").assertIsSelected()
+            composeTestRule.onNodeWithTag("type-color-$selectedColor").assertIsSelected()
+            composeTestRule.onNodeWithTag("type-save-error").assertExists()
+            assertTrue(viewModel.uiState.value.managedActivityTypes.any { it.name == "睡觉" })
+
+            database.openHelper.writableDatabase.execSQL("DROP TRIGGER reject_type_update")
+            composeTestRule.onNodeWithTag("type-save").performClick()
+            awaitStableState()
+            composeTestRule.onNodeWithTag("type-name-input").assertDoesNotExist()
+            assertTrue(viewModel.uiState.value.managedActivityTypes.any { it.name == name && it.iconKey == "walk" && it.colorArgb == selectedColor })
+        } finally {
+            database.openHelper.writableDatabase.execSQL("DROP TRIGGER IF EXISTS reject_type_update")
+            database.close()
+            if (viewModel.uiState.value.errorMessage != null) {
+                composeTestRule.runOnUiThread { viewModel.refresh() }
+                awaitStableState()
+            }
+        }
+    }
+
+    @Test
+    fun typeEditorCanReachLastColorInLandscape() {
+        composeTestRule.activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+        try {
+            composeTestRule.waitForIdle()
+            composeTestRule.onNodeWithTag("nav-settings").performClick()
+            composeTestRule.onNodeWithTag("settings-list").performScrollToNode(hasTestTag("type-add"))
+            composeTestRule.onNodeWithTag("type-add").performClick()
+            val lastColor = 0xFFA45565
+            composeTestRule.onNodeWithTag("type-color-$lastColor").performScrollTo().performClick().assertIsSelected()
+        } finally {
+            composeTestRule.activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        }
+    }
+
+    @Test
     fun differentActivityTypesCanRunTogetherAndStopIndependently() {
         composeTestRule.waitUntil(5_000) {
             composeTestRule.onAllNodes(androidx.compose.ui.test.hasTestTag("activity-sleep")).fetchSemanticsNodes().isNotEmpty()
@@ -233,12 +330,15 @@ class MainActivityTest {
     @Test
     fun bottomNavigationSwitchesBetweenThreeScreens() {
         composeTestRule.onNodeWithTag("screen-title").assertTextEquals("记录")
+        composeTestRule.onNode(hasTestTag("screen-title") and hasAnyAncestor(hasTestTag("record-list"))).assertExists()
 
         composeTestRule.onNodeWithTag("nav-statistics").performClick()
         composeTestRule.onNodeWithTag("screen-title").assertTextEquals("统计")
+        composeTestRule.onNode(hasTestTag("screen-title") and hasAnyAncestor(hasTestTag("statistics-list"))).assertExists()
 
         composeTestRule.onNodeWithTag("nav-settings").performClick()
         composeTestRule.onNodeWithTag("screen-title").assertTextEquals("设置")
+        composeTestRule.onNode(hasTestTag("screen-title") and hasAnyAncestor(hasTestTag("settings-list"))).assertExists()
 
         composeTestRule.onNodeWithTag("nav-record").performClick()
         composeTestRule.onNodeWithTag("screen-title").assertIsDisplayed().assertTextEquals("记录")
@@ -333,8 +433,8 @@ class MainActivityTest {
                         ),
                         onZoneSaved = {},
                         onWeekStartChanged = {},
-                        onTypeCreated = { _, _, _ -> },
-                        onTypeUpdated = { _, _, _, _ -> },
+                        onTypeCreated = { _, _, _, _ -> },
+                        onTypeUpdated = { _, _, _, _, _ -> },
                         onTypeMoved = { _, _ -> },
                         onTypeArchived = {},
                         modifier = Modifier.fillMaxWidth(),
@@ -348,5 +448,30 @@ class MainActivityTest {
         val archive = composeTestRule.onNodeWithTag("type-archive-睡觉").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
         assertTrue("归档操作应在窄屏换行", archive.top > edit.top)
         assertTrue("归档操作不得超出设置容器", archive.right <= container.right)
+    }
+
+    @Test
+    fun activityGridKeepsTwoColumnsAt320DpAndExpandsOnWideScreens() {
+        val state = viewModel.uiState.value
+        fun getCardTops(width: Int): List<Float> {
+            composeTestRule.runOnUiThread {
+                composeTestRule.activity.setContent {
+                    Box(Modifier.requiredWidth(width.dp)) {
+                        RecordScreen(state, {}, { _, _ -> }, Modifier.fillMaxWidth().height(800.dp))
+                    }
+                }
+            }
+            composeTestRule.waitForIdle()
+            return listOf("sleep", "walk", "cycle").map { type ->
+                composeTestRule.onNodeWithTag("activity-$type").fetchSemanticsNode().boundsInRoot.top
+            }
+        }
+
+        val narrowTops = getCardTops(320)
+        assertEquals("320dp 应显示两列", narrowTops[0], narrowTops[1], 1f)
+        assertTrue("第三张活动卡应进入下一行", narrowTops[2] > narrowTops[1])
+
+        val wideTops = getCardTops(720)
+        assertEquals("宽屏应增加列数", wideTops[0], wideTops[2], 1f)
     }
 }

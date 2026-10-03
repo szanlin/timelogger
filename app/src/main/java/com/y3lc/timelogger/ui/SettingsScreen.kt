@@ -15,6 +15,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -54,8 +56,8 @@ fun SettingsScreen(
     state: TimeLoggerUiState,
     onZoneSaved: (String?) -> Unit,
     onWeekStartChanged: (DayOfWeek) -> Unit,
-    onTypeCreated: (String, String, Long) -> Unit,
-    onTypeUpdated: (String, String, String, Long) -> Unit,
+    onTypeCreated: (String, String, Long, (String?) -> Unit) -> Unit,
+    onTypeUpdated: (String, String, String, Long, (String?) -> Unit) -> Unit,
     onTypeMoved: (String, Int) -> Unit,
     onTypeArchived: (String) -> Unit,
     modifier: Modifier = Modifier,
@@ -71,6 +73,7 @@ fun SettingsScreen(
     }
 
     LazyColumn(modifier.testTag("settings-list"), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        item { Text("设置", modifier = Modifier.testTag("screen-title"), style = MaterialTheme.typography.headlineMedium) }
         item {
             Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -172,11 +175,10 @@ fun SettingsScreen(
             type = editingType,
             enabled = !state.isSaving,
             onDismiss = { showEditor = false },
-            onSave = { name, iconKey, colorArgb ->
+            onSave = { name, iconKey, colorArgb, onResult ->
                 val id = editingType?.id
-                if (id == null) onTypeCreated(name, iconKey, colorArgb)
-                else onTypeUpdated(id, name, iconKey, colorArgb)
-                showEditor = false
+                if (id == null) onTypeCreated(name, iconKey, colorArgb, onResult)
+                else onTypeUpdated(id, name, iconKey, colorArgb, onResult)
             },
         )
     }
@@ -197,15 +199,16 @@ fun SettingsScreen(
 }
 
 @Composable
-private fun TypeEditorDialog(type: ActivityTypeItem?, enabled: Boolean, onDismiss: () -> Unit, onSave: (String, String, Long) -> Unit) {
+private fun TypeEditorDialog(type: ActivityTypeItem?, enabled: Boolean, onDismiss: () -> Unit, onSave: (String, String, Long, (String?) -> Unit) -> Unit) {
     var name by remember(type?.id) { mutableStateOf(type?.name.orEmpty()) }
     var iconKey by remember(type?.id) { mutableStateOf(type?.iconKey ?: "meeting") }
     var colorArgb by remember(type?.id) { mutableStateOf(type?.colorArgb ?: typeColors.first()) }
+    var saveError by remember(type?.id) { mutableStateOf<String?>(null) }
     AlertDialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = { if (enabled) onDismiss() },
         title = { Text(if (type == null) "新增类型" else "编辑类型") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(Modifier.verticalScroll(rememberScrollState()).testTag("type-editor-content"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(name, { name = it }, label = { Text("名称") }, singleLine = true, modifier = Modifier.fillMaxWidth().testTag("type-name-input"))
                 Text("图标")
                 typeIcons.chunked(2).forEach { row ->
@@ -248,12 +251,19 @@ private fun TypeEditorDialog(type: ActivityTypeItem?, enabled: Boolean, onDismis
                         }
                     }
                 }
+                saveError?.let { Text(it, modifier = Modifier.testTag("type-save-error")) }
             }
         },
         confirmButton = {
-            TextButton(onClick = { onSave(name, iconKey, colorArgb) }, enabled = enabled && name.isNotBlank(), modifier = Modifier.testTag("type-save")) { Text("保存") }
+            TextButton(onClick = {
+                saveError = null
+                onSave(name, iconKey, colorArgb) { error ->
+                    saveError = error
+                    if (error == null) onDismiss()
+                }
+            }, enabled = enabled && name.isNotBlank(), modifier = Modifier.testTag("type-save")) { Text("保存") }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
+        dismissButton = { TextButton(onClick = onDismiss, enabled = enabled) { Text("取消") } },
     )
 }
 

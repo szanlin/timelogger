@@ -9,7 +9,6 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
@@ -90,8 +89,8 @@ private fun TimeLoggerApp(
     onRetry: () -> Unit,
     onZoneSaved: (String?) -> Unit,
     onWeekStartChanged: (DayOfWeek) -> Unit,
-    onTypeCreated: (String, String, Long) -> Unit,
-    onTypeUpdated: (String, String, String, Long) -> Unit,
+    onTypeCreated: (String, String, Long, (String?) -> Unit) -> Unit,
+    onTypeUpdated: (String, String, String, Long, (String?) -> Unit) -> Unit,
     onTypeMoved: (String, Int) -> Unit,
     onTypeArchived: (String) -> Unit,
     onSessionSaved: (SessionTimeEdit, (String?) -> Unit) -> Unit,
@@ -132,18 +131,13 @@ private fun MainScreen(
     onRetry: () -> Unit,
     onZoneSaved: (String?) -> Unit,
     onWeekStartChanged: (DayOfWeek) -> Unit,
-    onTypeCreated: (String, String, Long) -> Unit,
-    onTypeUpdated: (String, String, String, Long) -> Unit,
+    onTypeCreated: (String, String, Long, (String?) -> Unit) -> Unit,
+    onTypeUpdated: (String, String, String, Long, (String?) -> Unit) -> Unit,
     onTypeMoved: (String, Int) -> Unit,
     onTypeArchived: (String) -> Unit,
     onSessionSaved: (SessionTimeEdit, (String?) -> Unit) -> Unit,
 ) {
     AppPageContainer(Modifier.padding(padding)) {
-        Text(
-            uiState.selectedTab.label,
-            modifier = Modifier.testTag("screen-title"),
-            style = MaterialTheme.typography.headlineMedium,
-        )
         if (uiState.isLoading) {
             CircularProgressIndicator()
         }
