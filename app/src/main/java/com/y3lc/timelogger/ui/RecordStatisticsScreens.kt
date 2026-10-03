@@ -8,20 +8,25 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
@@ -52,35 +57,57 @@ fun RecordScreen(state: TimeLoggerUiState, onToggle: (String) -> Unit, onSession
     if (historyVisible) {
         HistoryDialog(state, onSessionSaved) { historyVisible = false }
     }
-    LazyColumn(modifier.testTag("record-list"), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        item {
-            Text(state.today.dateLabel, style = MaterialTheme.typography.titleMedium)
-            Text(state.statisticsZoneId.id, style = MaterialTheme.typography.bodySmall)
+    LazyVerticalGrid(
+        columns = GridCells.Adaptive(minSize = 156.dp),
+        modifier = modifier.testTag("record-list"),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        item(span = { GridItemSpan(maxLineSpan) }) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("今天", style = MaterialTheme.typography.headlineSmall)
+                    Text(state.today.dateLabel, style = MaterialTheme.typography.bodyMedium)
+                    Text("统计时区 ${state.statisticsZoneId.id}", style = MaterialTheme.typography.bodySmall)
+                }
+                IconButton(
+                    onClick = { historyVisible = true },
+                    enabled = !state.isSaving && state.errorMessage == null,
+                    modifier = Modifier.size(48.dp).testTag("history-open"),
+                ) {
+                    Icon(painterResource(R.drawable.ic_tab_record), contentDescription = "查看历史记录")
+                }
+            }
         }
-        item { DurationSummary(state.today) }
-        item {
-            TextButton(onClick = { historyVisible = true }, enabled = !state.isSaving && state.errorMessage == null, modifier = Modifier.testTag("history-open")) {
-                Text("历史记录")
+        item(span = { GridItemSpan(maxLineSpan) }) {
+            Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("覆盖时长", style = MaterialTheme.typography.labelLarge)
+                    Text(formatDuration(state.today.coverageDuration), style = MaterialTheme.typography.displaySmall)
+                    Text("类型累计时长 ${formatDuration(state.today.totalDuration)}", style = MaterialTheme.typography.bodyMedium)
+                    Text("并行活动分别累计，覆盖时长只计算一次", style = MaterialTheme.typography.bodySmall)
+                }
             }
         }
         if (state.activityTypes.isEmpty()) {
-            item { Text("暂无活动类型，请在设置中添加首个类型") }
+            item(span = { GridItemSpan(maxLineSpan) }) { Text("暂无活动类型，请前往设置创建首个类型") }
         }
-        items(state.activityTypes.chunked(2)) { row ->
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                row.forEach { type ->
-                    ActivityCard(type, !state.isSaving && state.errorMessage == null, { onToggle(type.id) }, Modifier.weight(1f))
+        gridItems(state.activityTypes, key = ActivityTypeItem::id) { type ->
+            ActivityCard(type, !state.isSaving && state.errorMessage == null, { onToggle(type.id) }, Modifier.heightIn(min = 144.dp))
+        }
+        item(span = { GridItemSpan(maxLineSpan) }) {
+            Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("当日时间轴", style = MaterialTheme.typography.titleMedium)
+                    if (state.today.timeline.isEmpty()) {
+                        Text("点击活动图标，开始记录今天", style = MaterialTheme.typography.bodyMedium)
+                    } else {
+                        Timeline(state.today, state.statisticsZoneId)
+                    }
                 }
-                if (row.size == 1) Spacer(Modifier.weight(1f))
             }
         }
-        item { Text("当日时间轴", style = MaterialTheme.typography.titleMedium) }
-        if (state.today.timeline.isEmpty()) {
-            item { Text("点击活动图标，开始记录今天", style = MaterialTheme.typography.bodyMedium) }
-        } else {
-            item { Timeline(state.today, state.statisticsZoneId) }
-        }
-        item { Spacer(Modifier.height(8.dp)) }
+        item(span = { GridItemSpan(maxLineSpan) }) { Spacer(Modifier.height(8.dp)) }
     }
 }
 
@@ -91,7 +118,9 @@ private fun ActivityCard(type: ActivityTypeItem, enabled: Boolean, onClick: () -
     Card(
         onClick = onClick,
         enabled = enabled,
-        modifier = modifier.testTag("activity-${type.id}").semantics { contentDescription = "${type.name}，$status" },
+        modifier = modifier.testTag("activity-${type.id}").semantics {
+            contentDescription = if (type.isRunning) "${type.name}，进行中，时长 ${formatDuration(type.runningDuration)}" else "${type.name}，$status"
+        },
         colors = CardDefaults.cardColors(containerColor = if (type.isRunning) tint.copy(alpha = 0.14f) else MaterialTheme.colorScheme.surfaceContainer),
     ) {
         Column(Modifier.fillMaxWidth().padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -101,6 +130,7 @@ private fun ActivityCard(type: ActivityTypeItem, enabled: Boolean, onClick: () -
             }
             Spacer(Modifier.height(8.dp))
             Text(type.name, style = MaterialTheme.typography.titleMedium)
+            Text(status, style = MaterialTheme.typography.labelMedium)
             if (type.isRunning) {
                 Text(formatDuration(type.runningDuration), style = MaterialTheme.typography.bodyMedium)
             }

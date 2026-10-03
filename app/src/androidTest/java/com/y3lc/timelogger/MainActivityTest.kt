@@ -152,6 +152,13 @@ class MainActivityTest {
     }
 
     @Test
+    fun runningActivityAnnouncesItsDuration() {
+        composeTestRule.onNodeWithTag("activity-sleep").performClick()
+        awaitStableState()
+        composeTestRule.onNodeWithTag("activity-sleep").assertContentDescriptionContains("时长", substring = true)
+    }
+
+    @Test
     fun statisticsCanSwitchBetweenDayWeekAndMonth() {
         composeTestRule.onNodeWithTag("nav-statistics").performClick()
         composeTestRule.waitUntil(5_000) {
