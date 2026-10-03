@@ -5,9 +5,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -21,6 +19,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
@@ -36,6 +36,8 @@ import com.y3lc.timelogger.ui.StatisticsScreen
 import com.y3lc.timelogger.ui.StatisticsRange
 import com.y3lc.timelogger.ui.SettingsScreen
 import com.y3lc.timelogger.ui.SessionTimeEdit
+import com.y3lc.timelogger.ui.theme.AppPageContainer
+import com.y3lc.timelogger.ui.theme.TimeLoggerTheme
 import java.time.DayOfWeek
 import kotlinx.coroutines.delay
 
@@ -59,7 +61,7 @@ class MainActivity : ComponentActivity() {
                     }
                 }
             }
-            MaterialTheme {
+            TimeLoggerTheme {
                 TimeLoggerApp(
                     uiState,
                     viewModel::selectTab,
@@ -103,7 +105,9 @@ private fun TimeLoggerApp(
                         onClick = { onTabSelected(tab) },
                         icon = { Icon(painterResource(tabIcon(tab)), contentDescription = tab.label) },
                         label = { Text(tab.label) },
-                        modifier = Modifier.testTag("nav-${tab.name.lowercase()}"),
+                        modifier = Modifier
+                            .testTag("nav-${tab.name.lowercase()}")
+                            .semantics { contentDescription = tab.label },
                     )
                 }
             }
@@ -134,7 +138,7 @@ private fun MainScreen(
     onTypeArchived: (String) -> Unit,
     onSessionSaved: (SessionTimeEdit, (String?) -> Unit) -> Unit,
 ) {
-    Column(Modifier.fillMaxSize().padding(padding).padding(16.dp)) {
+    AppPageContainer(Modifier.padding(padding)) {
         Text(
             uiState.selectedTab.label,
             modifier = Modifier.testTag("screen-title"),

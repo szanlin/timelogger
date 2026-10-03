@@ -193,6 +193,13 @@ class MainActivityTest {
     }
 
     @Test
+    fun bottomNavigationItemsExposeDestinationDescriptions() {
+        composeTestRule.onNodeWithTag("nav-record").assertContentDescriptionContains("记录")
+        composeTestRule.onNodeWithTag("nav-statistics").assertContentDescriptionContains("统计")
+        composeTestRule.onNodeWithTag("nav-settings").assertContentDescriptionContains("设置")
+    }
+
+    @Test
     fun bottomNavigationSwitchesBetweenThreeScreens() {
         composeTestRule.onNodeWithTag("screen-title").assertTextEquals("记录")
 
