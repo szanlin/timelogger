@@ -33,7 +33,20 @@ enum class StatisticsRange(val label: String, val periodLabel: String) {
 
 data class TypeRanking(val typeId: String, val name: String, val colorArgb: Long, val duration: Duration)
 
-data class TimelineItem(val sessionId: String, val name: String, val colorArgb: Long, val interval: UtcInterval, val isRunning: Boolean)
+data class TimelineItem(
+    val sessionId: String,
+    val activityTypeId: String,
+    val name: String,
+    val colorArgb: Long,
+    val interval: UtcInterval,
+    val isRunning: Boolean,
+)
+
+data class ActivityTypeDailyDetail(
+    val date: LocalDate,
+    val totalDuration: Duration,
+    val sessions: List<TimelineItem>,
+)
 
 data class HistorySessionItem(val id: String, val name: String, val startedAtUtc: Instant, val endedAtUtc: Instant)
 
@@ -115,7 +128,7 @@ fun buildPeriodSummary(
     val timeline = sessions.mapNotNull { session ->
         val clipped = period.interval.clip(session.startedAtUtc, session.endedAtUtc, nowUtc) ?: return@mapNotNull null
         val type = typesById[session.activityTypeId]
-        TimelineItem(session.id, type?.name ?: "未知类型", type?.colorArgb ?: 0xFF777777, clipped, session.endedAtUtc == null)
+        TimelineItem(session.id, session.activityTypeId, type?.name ?: "未知类型", type?.colorArgb ?: 0xFF777777, clipped, session.endedAtUtc == null)
     }.sortedWith(compareBy<TimelineItem> { it.interval.start }.thenBy { it.sessionId })
     val lastChartDate = if (range == StatisticsRange.MONTH) minOf(endDate, nowUtc.atZone(zoneId).toLocalDate()) else endDate
     val dailyBreakdown = if (range == StatisticsRange.DAY || ranking.isEmpty()) emptyList() else
@@ -134,6 +147,44 @@ fun buildPeriodSummary(
         timeline = timeline,
         dailyBreakdown = dailyBreakdown,
     )
+}
+
+fun filterTimelineByActivityType(timeline: List<TimelineItem>, activityTypeId: String): List<TimelineItem> =
+    timeline.filter { it.activityTypeId == activityTypeId }
+
+fun buildActivityTypeDailyDetails(
+    timeline: List<TimelineItem>,
+    activityTypeId: String,
+    zoneId: ZoneId,
+): List<ActivityTypeDailyDetail> {
+    val sessionsByDate = sortedMapOf<LocalDate, MutableList<TimelineItem>>()
+    filterTimelineByActivityType(timeline, activityTypeId).forEach { session ->
+        var date = session.interval.start.atZone(zoneId).toLocalDate()
+        val lastDate = session.interval.endExclusive.minusNanos(1).atZone(zoneId).toLocalDate()
+        while (!date.isAfter(lastDate)) {
+            val dayInterval = StatisticsPeriod.day(date, zoneId).interval
+            val start = maxOf(session.interval.start, dayInterval.start)
+            val endExclusive = minOf(session.interval.endExclusive, dayInterval.endExclusive)
+            if (start < endExclusive) {
+                sessionsByDate.getOrPut(date, ::mutableListOf).add(
+                    session.copy(
+                        interval = UtcInterval(start, endExclusive),
+                        isRunning = session.isRunning && endExclusive == session.interval.endExclusive,
+                    ),
+                )
+            }
+            date = date.plusDays(1)
+        }
+    }
+    return sessionsByDate.map { (date, sessions) ->
+        ActivityTypeDailyDetail(
+            date = date,
+            totalDuration = sessions.fold(Duration.ZERO) { total, session ->
+                total.plus(Duration.between(session.interval.start, session.interval.endExclusive))
+            },
+            sessions = sessions,
+        )
+    }
 }
 
 fun formatDuration(duration: Duration): String {

@@ -146,7 +146,7 @@ class TimeLoggerViewModel(
 
     private fun validateActivityType(name: String, iconKey: String): String? {
         val normalized = name.trim()
-        if (normalized.isEmpty() || iconKey !in setOf("sleep", "walk", "cycle", "meeting")) {
+        if (normalized.isEmpty() || !ActivityTypeIcons.isSupported(iconKey)) {
             mutableUiState.update { it.copy(errorMessage = "请输入类型名称并选择图标") }
             return null
         }

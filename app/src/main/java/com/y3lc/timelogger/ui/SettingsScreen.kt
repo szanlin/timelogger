@@ -39,15 +39,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.res.painterResource
-import com.y3lc.timelogger.R
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import java.time.DayOfWeek
 
-private val typeIcons = listOf("sleep" to "睡觉", "walk" to "走路", "cycle" to "骑车", "meeting" to "开会")
 private val typeColors = listOf(0xFF5266A6, 0xFF4A8D69, 0xFFB27142, 0xFF855C91, 0xFF287C91, 0xFFA45565)
 private val typeColorNames = listOf("蓝色", "绿色", "橙色", "紫色", "青色", "红色")
 
@@ -150,7 +147,7 @@ fun SettingsScreen(
             Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)) {
                 Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Icon(painterResource(typeIcon(type.iconKey)), contentDescription = null, tint = Color(type.colorArgb), modifier = Modifier.size(28.dp))
+                        Icon(ActivityTypeIcons.getByKey(type.iconKey).imageVector, contentDescription = null, tint = Color(type.colorArgb), modifier = Modifier.size(28.dp))
                         Box(Modifier.size(10.dp).background(Color(type.colorArgb), CircleShape))
                         Text(type.name, style = MaterialTheme.typography.titleSmall)
                     }
@@ -211,22 +208,22 @@ private fun TypeEditorDialog(type: ActivityTypeItem?, enabled: Boolean, onDismis
             Column(Modifier.verticalScroll(rememberScrollState()).testTag("type-editor-content"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(name, { name = it }, label = { Text("名称") }, singleLine = true, modifier = Modifier.fillMaxWidth().testTag("type-name-input"))
                 Text("图标")
-                typeIcons.chunked(2).forEach { row ->
+                ActivityTypeIcons.all.chunked(2).forEach { row ->
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        row.forEach { (key, label) ->
-                            val selected = iconKey == key
+                        row.forEach { icon ->
+                            val selected = iconKey == icon.key
                             Row(
                                 Modifier.weight(1f)
                                     .heightIn(min = 48.dp)
                                     .background(if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainer, RoundedCornerShape(12.dp))
-                                    .selectable(selected = selected, role = Role.Button, onClick = { iconKey = key })
-                                    .testTag("type-icon-$key")
+                                    .selectable(selected = selected, role = Role.Button, onClick = { iconKey = icon.key })
+                                    .testTag("type-icon-${icon.key}")
                                     .padding(horizontal = 8.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                             ) {
-                                Icon(painterResource(typeIcon(key)), contentDescription = null, modifier = Modifier.size(20.dp))
-                                Text(label, style = MaterialTheme.typography.labelLarge)
+                                Icon(icon.imageVector, contentDescription = null, modifier = Modifier.size(20.dp))
+                                Text(icon.label, style = MaterialTheme.typography.labelLarge)
                             }
                         }
                     }
@@ -265,11 +262,4 @@ private fun TypeEditorDialog(type: ActivityTypeItem?, enabled: Boolean, onDismis
         },
         dismissButton = { TextButton(onClick = onDismiss, enabled = enabled) { Text("取消") } },
     )
-}
-
-private fun typeIcon(key: String): Int = when (key) {
-    "sleep" -> R.drawable.ic_sleep
-    "walk" -> R.drawable.ic_walk
-    "cycle" -> R.drawable.ic_cycle
-    else -> R.drawable.ic_meeting
 }

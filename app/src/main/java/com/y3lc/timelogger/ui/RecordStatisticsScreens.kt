@@ -23,6 +23,7 @@ import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -31,6 +32,7 @@ import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
@@ -52,6 +54,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.y3lc.timelogger.R
 import java.time.Duration
+import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
@@ -82,17 +85,7 @@ fun RecordScreen(state: TimeLoggerUiState, onToggle: (String) -> Unit, onSession
                         enabled = !state.isSaving && state.errorMessage == null,
                         modifier = Modifier.size(48.dp).testTag("history-open"),
                     ) {
-                        Icon(painterResource(R.drawable.ic_tab_record), contentDescription = "查看历史记录")
-                    }
-                }
-            }
-            item(span = { GridItemSpan(maxLineSpan) }) {
-                Card(Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("覆盖时长", style = MaterialTheme.typography.labelLarge)
-                        Text(formatDuration(state.today.coverageDuration), style = MaterialTheme.typography.displaySmall)
-                        Text("类型累计时长 ${formatDuration(state.today.totalDuration)}", style = MaterialTheme.typography.bodyMedium)
-                        Text("并行活动分别累计，覆盖时长只计算一次", style = MaterialTheme.typography.bodySmall)
+                Icon(painterResource(R.drawable.ic_tab_record), contentDescription = "查看历史记录")
                     }
                 }
             }
@@ -134,7 +127,7 @@ private fun ActivityCard(type: ActivityTypeItem, enabled: Boolean, onClick: () -
         Column(Modifier.fillMaxWidth().padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Box(contentAlignment = Alignment.Center, modifier = Modifier.size(52.dp)) {
                 if (type.isRunning) CircularProgressIndicator(progress = { 1f }, modifier = Modifier.size(52.dp), color = tint, strokeWidth = 2.dp)
-                Icon(painterResource(activityIcon(type.iconKey)), null, tint = tint, modifier = Modifier.size(30.dp))
+                Icon(ActivityTypeIcons.getByKey(type.iconKey).imageVector, null, tint = tint, modifier = Modifier.size(30.dp))
             }
             Spacer(Modifier.height(8.dp))
             Text(type.name, style = MaterialTheme.typography.titleMedium)
@@ -146,15 +139,15 @@ private fun ActivityCard(type: ActivityTypeItem, enabled: Boolean, onClick: () -
     }
 }
 
-private fun activityIcon(iconKey: String): Int = when (iconKey) {
-    "sleep" -> R.drawable.ic_sleep
-    "walk" -> R.drawable.ic_walk
-    "cycle" -> R.drawable.ic_cycle
-    else -> R.drawable.ic_meeting
-}
-
 @Composable
 fun StatisticsScreen(state: TimeLoggerUiState, onRangeSelected: (StatisticsRange) -> Unit, modifier: Modifier = Modifier) {
+    var selectedTypeId by rememberSaveable { mutableStateOf<String?>(null) }
+    val selectedType = state.statistics.ranking.firstOrNull { it.typeId == selectedTypeId }
+    selectedType?.let { type ->
+        TypeStatisticsDetailDialog(type, state.statistics, state.statisticsZoneId) {
+            selectedTypeId = null
+        }
+    }
     LazyColumn(modifier.testTag("statistics-list"), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         item {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -163,7 +156,10 @@ fun StatisticsScreen(state: TimeLoggerUiState, onRangeSelected: (StatisticsRange
                     StatisticsRange.entries.forEachIndexed { index, range ->
                         SegmentedButton(
                             selected = state.statisticsRange == range,
-                            onClick = { onRangeSelected(range) },
+                            onClick = {
+                                selectedTypeId = null
+                                onRangeSelected(range)
+                            },
                             shape = SegmentedButtonDefaults.itemShape(index, StatisticsRange.entries.size),
                             modifier = Modifier.weight(1f).testTag("period-${range.name.lowercase()}"),
                             label = { Text(range.label) },
@@ -188,7 +184,8 @@ fun StatisticsScreen(state: TimeLoggerUiState, onRangeSelected: (StatisticsRange
             item { Text("类型累计排行", style = MaterialTheme.typography.titleMedium) }
             items(state.statistics.ranking, key = { it.typeId }) { type ->
                 Card(
-                    Modifier.fillMaxWidth(),
+                    onClick = { selectedTypeId = type.typeId },
+                    modifier = Modifier.fillMaxWidth().testTag("statistics-type-${type.typeId}"),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
                 ) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -215,6 +212,43 @@ fun StatisticsScreen(state: TimeLoggerUiState, onRangeSelected: (StatisticsRange
             }
         }
     }
+}
+
+@Composable
+private fun TypeStatisticsDetailDialog(type: TypeRanking, summary: PeriodSummary, zoneId: ZoneId, onDismiss: () -> Unit) {
+    val dailyDetails = buildActivityTypeDailyDetails(summary.timeline, type.typeId, zoneId)
+    val formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss").withZone(zoneId)
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        modifier = Modifier.testTag("statistics-type-detail"),
+        title = { Text("${type.name}详情", modifier = Modifier.testTag("statistics-type-detail-title")) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(summary.dateLabel, style = MaterialTheme.typography.bodyMedium)
+                Text("周期累计 ${formatDuration(type.duration)}", style = MaterialTheme.typography.titleMedium)
+                LazyColumn(Modifier.heightIn(max = 360.dp)) {
+                    items(dailyDetails, key = ActivityTypeDailyDetail::date) { detail ->
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.padding(vertical = 8.dp)) {
+                            Text("${detail.date} · ${formatDuration(detail.totalDuration)}", style = MaterialTheme.typography.titleSmall)
+                            detail.sessions.forEach { session ->
+                                Column(
+                                    Modifier.fillMaxWidth().testTag("statistics-type-detail-session"),
+                                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                                ) {
+                                    Text(formatter.format(session.interval.start))
+                                    Text(if (session.isRunning) "进行中，截至 ${formatter.format(session.interval.endExclusive)}" else "至 ${formatter.format(session.interval.endExclusive)}")
+                                    Text("时长 ${formatDuration(Duration.between(session.interval.start, session.interval.endExclusive))}", style = MaterialTheme.typography.bodySmall)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss, modifier = Modifier.testTag("statistics-type-detail-close")) { Text("关闭") }
+        },
+    )
 }
 
 @Composable
@@ -329,7 +363,7 @@ private fun TrendLegend(label: String, color: Color) {
 
 @Composable
 private fun DurationSummary(summary: PeriodSummary) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(Modifier.testTag("statistics-duration-summary"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text("覆盖时长", style = MaterialTheme.typography.labelLarge)
@@ -351,22 +385,79 @@ private fun Timeline(summary: PeriodSummary, zoneId: ZoneId) {
     val period = summary.interval ?: return
     val periodMillis = Duration.between(period.start, period.endExclusive).toMillis().toDouble()
     val formatter = DateTimeFormatter.ofPattern("HH:mm:ss").withZone(zoneId)
+    val segments = createTimelineSegments(summary, period.start, period.endExclusive)
+    val description = segments.joinToString("；") { segment ->
+        val names = segment.items.joinToString("、") { item ->
+            if (item.isRunning) "${item.name}（进行中）" else item.name
+        }
+        val activity = if (segment.items.size > 1) "$names 并行" else names
+        "${formatter.format(segment.start)} 至 ${formatter.format(segment.endExclusive)}，$activity"
+    }
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text("00:00", style = MaterialTheme.typography.labelSmall)
             Text("24:00", style = MaterialTheme.typography.labelSmall)
         }
-        summary.timeline.forEach { item ->
-            val start = (Duration.between(period.start, item.interval.start).toMillis() / periodMillis).toFloat()
-            val width = (Duration.between(item.interval.start, item.interval.endExclusive).toMillis() / periodMillis).toFloat()
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text("${item.name} · ${formatter.format(item.interval.start)} — ${if (item.isRunning) "进行中" else if (item.interval.endExclusive == period.endExclusive) "24:00" else formatter.format(item.interval.endExclusive)}", style = MaterialTheme.typography.bodySmall)
-                val trackColor = MaterialTheme.colorScheme.surfaceContainerHighest
-                Canvas(Modifier.fillMaxWidth().height(8.dp)) {
-                    drawRoundRect(trackColor, cornerRadius = CornerRadius(4.dp.toPx()))
-                    drawRoundRect(Color(item.colorArgb), topLeft = Offset(size.width * start, 0f), size = Size((size.width * width).coerceAtLeast(2.dp.toPx()).coerceAtMost(size.width * (1 - start)), size.height), cornerRadius = CornerRadius(4.dp.toPx()))
+        val trackColor = MaterialTheme.colorScheme.surfaceContainerHighest
+        val parallelColor = MaterialTheme.colorScheme.primary
+        Canvas(
+            Modifier
+                .fillMaxWidth()
+                .height(16.dp)
+                .testTag("timeline-track")
+                .semantics { contentDescription = "共享时间轴：$description" },
+        ) {
+            val normalHeight = 6.dp.toPx()
+            val parallelHeight = 14.dp.toPx()
+            drawRoundRect(
+                trackColor,
+                topLeft = Offset(0f, (size.height - normalHeight) / 2f),
+                size = Size(size.width, normalHeight),
+                cornerRadius = CornerRadius(normalHeight / 2f),
+            )
+            segments.forEach { segment ->
+                val start = Duration.between(period.start, segment.start).toMillis() / periodMillis
+                val end = Duration.between(period.start, segment.endExclusive).toMillis() / periodMillis
+                val height = if (segment.items.size > 1) parallelHeight else normalHeight
+                val color = if (segment.items.size > 1) parallelColor else Color(segment.items.single().colorArgb)
+                val startX = size.width * start.toFloat()
+                val width = calculateTimelineSegmentWidth(size.width, start.toFloat(), end.toFloat())
+                if (width > 0f) {
+                    drawRoundRect(
+                        color,
+                        topLeft = Offset(startX, (size.height - height) / 2f),
+                        size = Size(width, height),
+                        cornerRadius = CornerRadius(height / 2f),
+                    )
                 }
             }
         }
     }
+}
+
+private data class TimelineSegment(
+    val start: Instant,
+    val endExclusive: Instant,
+    val items: List<TimelineItem>,
+)
+
+private fun createTimelineSegments(summary: PeriodSummary, periodStart: Instant, periodEndExclusive: Instant): List<TimelineSegment> {
+    val boundaries = buildSet {
+        add(periodStart)
+        add(periodEndExclusive)
+        summary.timeline.forEach { item ->
+            add(item.interval.start.coerceIn(periodStart, periodEndExclusive))
+            add(item.interval.endExclusive.coerceIn(periodStart, periodEndExclusive))
+        }
+    }.sorted()
+    return boundaries.zipWithNext().mapNotNull { (start, endExclusive) ->
+        val items = summary.timeline.filter { item -> item.interval.start < endExclusive && item.interval.endExclusive > start }
+        if (items.isEmpty()) null else TimelineSegment(start, endExclusive, items)
+    }
+}
+
+internal fun calculateTimelineSegmentWidth(trackWidth: Float, startFraction: Float, endFraction: Float): Float {
+    val startX = (trackWidth * startFraction).coerceIn(0f, trackWidth)
+    val endX = (trackWidth * endFraction).coerceIn(startX, trackWidth)
+    return endX - startX
 }

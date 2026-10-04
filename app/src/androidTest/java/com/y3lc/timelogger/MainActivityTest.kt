@@ -16,12 +16,16 @@ import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertContentDescriptionContains
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertWidthIsAtLeast
 import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onAllNodesWithTag
+import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTextReplacement
@@ -164,6 +168,19 @@ class MainActivityTest {
     }
 
     @Test
+    fun typeEditorCanSelectAndSaveMaterialSurfIcon() {
+        val name = "冲浪${System.nanoTime()}"
+        composeTestRule.onNodeWithTag("nav-settings").performClick()
+        composeTestRule.onNodeWithTag("type-add").performClick()
+        composeTestRule.onNodeWithTag("type-name-input").performTextInput(name)
+        composeTestRule.onNodeWithTag("type-icon-surf").performClick().assertIsSelected()
+        composeTestRule.onNodeWithTag("type-save").performClick()
+        awaitStableState()
+
+        assertTrue(viewModel.uiState.value.managedActivityTypes.any { it.name == name && it.iconKey == "surf" })
+    }
+
+    @Test
     fun typeEditorKeepsDraftAfterRealInsertFailureAndCanRetry() {
         val name = "阅读${System.nanoTime()}"
         val selectedColor = 0xFF4A8D69
@@ -280,6 +297,25 @@ class MainActivityTest {
     }
 
     @Test
+    fun homeUsesOneSharedTimelineAndKeepsCoverageInStatistics() {
+        composeTestRule.onAllNodesWithText("覆盖时长").assertCountEquals(0)
+
+        composeTestRule.onNodeWithTag("activity-sleep").performClick()
+        awaitStableState()
+        composeTestRule.onNodeWithTag("activity-walk").performClick()
+        awaitStableState()
+
+        composeTestRule.onNodeWithTag("record-list").performScrollToNode(hasTestTag("timeline-track"))
+        composeTestRule.onAllNodesWithTag("timeline-track").assertCountEquals(1)
+        composeTestRule.onNodeWithTag("timeline-track").assertContentDescriptionContains("并行", substring = true)
+        composeTestRule.onNodeWithTag("timeline-track").assertContentDescriptionContains("进行中", substring = true)
+
+        composeTestRule.onNodeWithTag("nav-statistics").performClick()
+        composeTestRule.onNodeWithTag("statistics-duration-summary").assertExists()
+        composeTestRule.onNodeWithText("覆盖时长").assertExists()
+    }
+
+    @Test
     fun statisticsCanSwitchBetweenDayWeekAndMonth() {
         composeTestRule.onNodeWithTag("nav-statistics").performClick()
         composeTestRule.waitUntil(5_000) {
@@ -291,6 +327,25 @@ class MainActivityTest {
         composeTestRule.onNodeWithTag("statistics-period-label").assertTextEquals("本月")
         composeTestRule.onNodeWithTag("period-day").performClick()
         composeTestRule.onNodeWithTag("statistics-period-label").assertTextEquals("今天")
+    }
+
+    @Test
+    fun statisticsTypeCanDrillDownInEveryRange() {
+        composeTestRule.onNodeWithTag("activity-walk").performClick()
+        awaitStableState()
+        composeTestRule.onNodeWithTag("activity-walk").performClick()
+        awaitStableState()
+        composeTestRule.onNodeWithTag("nav-statistics").performClick()
+
+        listOf("day", "week", "month").forEach { range ->
+            composeTestRule.onNodeWithTag("period-$range").performClick()
+            composeTestRule.onNodeWithTag("statistics-list").performScrollToNode(hasTestTag("statistics-type-walk"))
+            composeTestRule.onNodeWithTag("statistics-type-walk").performClick()
+            composeTestRule.onNodeWithTag("statistics-type-detail").assertIsDisplayed()
+            composeTestRule.onNodeWithTag("statistics-type-detail-title").assertTextContains("走路")
+            composeTestRule.onAllNodesWithTag("statistics-type-detail-session").assertCountEquals(1)
+            composeTestRule.onNodeWithTag("statistics-type-detail-close").performClick()
+        }
     }
 
     @Test

@@ -15,3 +15,10 @@ local.properties
 .superpowers
 docs
 .idea
+
+
+keystore.properties
+*.jks
+*.keystore
+release
+release.sh

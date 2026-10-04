@@ -52,6 +52,59 @@ class TimeLoggerStateTest {
     }
 
     @Test
+    fun filtersPeriodTimelineToTheSelectedActivityType() {
+        val summary = buildPeriodSummary(
+            listOf(activityType("walk", "走路", 0), activityType("sleep", "睡觉", 1)),
+            listOf(
+                activitySession("walk").copy(startedAtUtc = Instant.parse("2026-10-01T16:00:00Z"), endedAtUtc = Instant.parse("2026-10-01T17:00:00Z")),
+                activitySession("sleep").copy(startedAtUtc = Instant.parse("2026-10-01T17:00:00Z"), endedAtUtc = Instant.parse("2026-10-01T18:00:00Z")),
+            ),
+            StatisticsRange.DAY,
+            LocalDate.parse("2026-10-02"),
+            ZoneId.of("Asia/Shanghai"),
+            now,
+        )
+
+        val items = filterTimelineByActivityType(summary.timeline, "walk")
+
+        assertEquals(1, items.size)
+        assertEquals("session-walk", items.single().sessionId)
+        assertEquals(Instant.parse("2026-10-01T16:00:00Z"), items.single().interval.start)
+        assertEquals(Instant.parse("2026-10-01T17:00:00Z"), items.single().interval.endExclusive)
+    }
+
+    @Test
+    fun splitsTypeDetailIntoLocalCalendarDays() {
+        val summary = buildPeriodSummary(
+            listOf(activityType("walk", "走路", 0)),
+            listOf(
+                activitySession("walk").copy(
+                    startedAtUtc = Instant.parse("2026-10-01T15:00:00Z"),
+                    endedAtUtc = Instant.parse("2026-10-01T17:00:00Z"),
+                ),
+            ),
+            StatisticsRange.WEEK,
+            LocalDate.parse("2026-10-02"),
+            ZoneId.of("Asia/Shanghai"),
+            now,
+        )
+
+        val dailyDetails = buildActivityTypeDailyDetails(summary.timeline, "walk", ZoneId.of("Asia/Shanghai"))
+
+        assertEquals(listOf(LocalDate.parse("2026-10-01"), LocalDate.parse("2026-10-02")), dailyDetails.map { it.date })
+        assertEquals(listOf(Duration.ofHours(1), Duration.ofHours(1)), dailyDetails.map { it.totalDuration })
+        assertEquals(Instant.parse("2026-10-01T15:00:00Z"), dailyDetails.first().sessions.single().interval.start)
+        assertEquals(Instant.parse("2026-10-01T16:00:00Z"), dailyDetails.first().sessions.single().interval.endExclusive)
+        assertEquals(Instant.parse("2026-10-01T16:00:00Z"), dailyDetails.last().sessions.single().interval.start)
+        assertEquals(Instant.parse("2026-10-01T17:00:00Z"), dailyDetails.last().sessions.single().interval.endExclusive)
+    }
+
+    @Test
+    fun parallelTimelineSegmentKeepsItsExactWidth() {
+        assertEquals(1f, calculateTimelineSegmentWidth(trackWidth = 10_000f, startFraction = 0.5f, endFraction = 0.5001f), 0f)
+    }
+
+    @Test
     fun weekChartStartsOnConfiguredSundayAndSplitsTypesAtLocalMidnight() {
         val zone = ZoneId.of("Asia/Shanghai")
         val sessions = listOf(
