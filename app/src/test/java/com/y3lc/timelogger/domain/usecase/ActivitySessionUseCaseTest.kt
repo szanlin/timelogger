@@ -230,6 +230,21 @@ class ActivitySessionUseCaseTest {
         assertEquals(stoppedAtUtc, repository.types["work"]?.updatedAtUtc)
     }
 
+    @Test
+    fun deletesOnlyClosedActivitySessions() {
+        val repository = FakeActivityRepository().apply {
+            sessions["closed"] = activeSession("closed", "walking").copy(endedAtUtc = stoppedAtUtc)
+            sessions["running"] = activeSession("running", "walking")
+        }
+        val useCase = DeleteActivitySessionUseCase(repository)
+
+        assertEquals(DeleteActivitySessionResult.Deleted, useCase("closed"))
+        assertFalse(repository.sessions.containsKey("closed"))
+        assertEquals(DeleteActivitySessionResult.StillRunning, useCase("running"))
+        assertTrue(repository.sessions.containsKey("running"))
+        assertEquals(DeleteActivitySessionResult.NotFound, useCase("missing"))
+    }
+
     private fun activityType(id: String, isArchived: Boolean = false): ActivityType = ActivityType(
         id = id,
         name = id,
@@ -267,6 +282,14 @@ class ActivitySessionUseCaseTest {
             if (existing.endedAtUtc == null) return false
             sessions[id] = existing.copy(startedAtUtc = startedAtUtc, endedAtUtc = endedAtUtc, updatedAtUtc = updatedAtUtc)
             events += "edit:$id"
+            return true
+        }
+
+        override fun deleteClosedSession(id: String): Boolean {
+            val existing = sessions[id] ?: return false
+            if (existing.endedAtUtc == null) return false
+            sessions.remove(id)
+            events += "delete:$id"
             return true
         }
 

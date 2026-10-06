@@ -16,6 +16,8 @@ import com.y3lc.timelogger.domain.usecase.StopActivitySessionUseCase
 import com.y3lc.timelogger.domain.usecase.StopActivitySessionResult
 import com.y3lc.timelogger.domain.usecase.EditActivitySessionUseCase
 import com.y3lc.timelogger.domain.usecase.EditActivitySessionResult
+import com.y3lc.timelogger.domain.usecase.DeleteActivitySessionUseCase
+import com.y3lc.timelogger.domain.usecase.DeleteActivitySessionResult
 import java.time.Duration
 import java.time.DayOfWeek
 import java.time.Instant
@@ -71,6 +73,11 @@ class TimeLoggerViewModel(
 
     fun selectStatisticsRange(range: StatisticsRange) {
         mutableUiState.update { it.copy(statisticsRange = range) }
+        updateClock()
+    }
+
+    fun selectStatisticsAnchorDate(date: java.time.LocalDate) {
+        mutableUiState.update { it.copy(statisticsAnchorDate = date) }
         updateClock()
     }
 
@@ -206,6 +213,14 @@ class TimeLoggerViewModel(
         }
     }
 
+    fun deleteActivitySession(id: String) {
+        runOperation("记录未能删除，请重试") { repository ->
+            repository.inTransaction {
+                check(DeleteActivitySessionUseCase(repository)(id) == DeleteActivitySessionResult.Deleted)
+            }
+        }
+    }
+
     private fun runOperation(errorMessage: String, operation: ((RoomActivityRepository) -> Unit)?) {
         runOperation(errorMessage, {}, operation)
     }
@@ -261,9 +276,10 @@ class TimeLoggerViewModel(
         val now = Instant.now()
         val stateSettings = uiState.value
         val zone = stateSettings.fixedStatisticsZoneId?.let(ZoneId::of) ?: ZoneId.systemDefault()
-        val date = now.atZone(zone).toLocalDate()
+        val statisticsDate = stateSettings.statisticsAnchorDate ?: now.atZone(zone).toLocalDate()
         val activeByType = sessions.filter { it.endedAtUtc == null }.associateBy { it.activityTypeId }
         mutableUiState.update { state ->
+            val summaries = buildStatisticsSummaries(types, sessions, statisticsDate, zone, now, state.firstDayOfWeek)
             state.copy(
                 statisticsZoneId = zone,
                 activityTypes = mapActivityTypes(types, sessions).map { item ->
@@ -277,8 +293,9 @@ class TimeLoggerViewModel(
                         HistorySessionItem(session.id, types.firstOrNull { it.id == session.activityTypeId }?.name ?: "未知类型", session.startedAtUtc, end)
                     }
                 }.sortedWith(compareByDescending<HistorySessionItem> { it.startedAtUtc }.thenBy { it.id }),
-                today = buildPeriodSummary(types, sessions, StatisticsRange.DAY, date, zone, now),
-                statistics = buildPeriodSummary(types, sessions, state.statisticsRange, date, zone, now, state.firstDayOfWeek),
+                today = buildTodaySummary(types, sessions, zone, now),
+                statistics = summaries.getValue(state.statisticsRange),
+                statisticsByRange = summaries,
             )
         }
     }

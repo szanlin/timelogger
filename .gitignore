@@ -13,7 +13,7 @@ local.properties
 .om*
 .kotlin
 .superpowers
-docs
+/docs/
 .idea
 
 

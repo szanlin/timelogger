@@ -11,6 +11,8 @@ interface ActivityRepository {
 
     fun updateClosedSession(id: String, startedAtUtc: Instant, endedAtUtc: Instant, updatedAtUtc: Instant): Boolean
 
+    fun deleteClosedSession(id: String): Boolean
+
     fun getActiveSessionByTypeId(activityTypeId: String): ActivitySession?
 
     fun insertSession(session: ActivitySession)

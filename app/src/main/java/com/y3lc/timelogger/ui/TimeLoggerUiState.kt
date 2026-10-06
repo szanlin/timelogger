@@ -3,6 +3,7 @@ package com.y3lc.timelogger.ui
 import com.y3lc.timelogger.domain.model.ActivitySession
 import com.y3lc.timelogger.domain.model.ActivityType
 import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import java.time.Duration
 import java.time.Instant
 import java.time.LocalDate
@@ -48,6 +49,8 @@ data class ActivityTypeDailyDetail(
     val sessions: List<TimelineItem>,
 )
 
+data class TypeDailyBar(val date: LocalDate, val duration: Duration)
+
 data class HistorySessionItem(val id: String, val name: String, val startedAtUtc: Instant, val endedAtUtc: Instant)
 
 data class SessionTimeEdit(val id: String, val startedAtUtc: Instant, val endedAtUtc: Instant)
@@ -82,8 +85,10 @@ data class TimeLoggerUiState(
     val errorMessage: String? = null,
     val isSaving: Boolean = false,
     val statisticsRange: StatisticsRange = StatisticsRange.DAY,
+    val statisticsAnchorDate: LocalDate? = null,
     val today: PeriodSummary = PeriodSummary(),
     val statistics: PeriodSummary = PeriodSummary(),
+    val statisticsByRange: Map<StatisticsRange, PeriodSummary> = emptyMap(),
 )
 
 fun mapActivityTypes(types: List<ActivityType>, sessions: List<ActivitySession>): List<ActivityTypeItem> {
@@ -149,6 +154,31 @@ fun buildPeriodSummary(
     )
 }
 
+fun buildStatisticsSummaries(
+    types: List<ActivityType>,
+    sessions: List<ActivitySession>,
+    anchorDate: LocalDate,
+    zoneId: ZoneId,
+    nowUtc: Instant,
+    firstDayOfWeek: DayOfWeek = DayOfWeek.MONDAY,
+): Map<StatisticsRange, PeriodSummary> = StatisticsRange.entries.associateWith { range ->
+    buildPeriodSummary(types, sessions, range, anchorDate, zoneId, nowUtc, firstDayOfWeek)
+}
+
+fun buildTodaySummary(
+    types: List<ActivityType>,
+    sessions: List<ActivitySession>,
+    zoneId: ZoneId,
+    nowUtc: Instant,
+): PeriodSummary = buildPeriodSummary(
+    types = types,
+    sessions = sessions,
+    range = StatisticsRange.DAY,
+    anchorDate = nowUtc.atZone(zoneId).toLocalDate(),
+    zoneId = zoneId,
+    nowUtc = nowUtc,
+)
+
 fun filterTimelineByActivityType(timeline: List<TimelineItem>, activityTypeId: String): List<TimelineItem> =
     timeline.filter { it.activityTypeId == activityTypeId }
 
@@ -185,6 +215,40 @@ fun buildActivityTypeDailyDetails(
             sessions = sessions,
         )
     }
+}
+
+fun buildTypeDailyBars(summary: PeriodSummary, activityTypeId: String, zoneId: ZoneId): List<TypeDailyBar> {
+    val interval = summary.interval ?: return emptyList()
+    val durationByDate = buildActivityTypeDailyDetails(summary.timeline, activityTypeId, zoneId)
+        .associate { it.date to it.totalDuration }
+    val firstDate = interval.start.atZone(zoneId).toLocalDate()
+    val lastDate = interval.endExclusive.minusNanos(1).atZone(zoneId).toLocalDate()
+    return generateSequence(firstDate) { it.plusDays(1) }
+        .takeWhile { date -> !date.isAfter(lastDate) }
+        .map { date -> TypeDailyBar(date, durationByDate[date] ?: Duration.ZERO) }
+        .toList()
+}
+
+fun formatTypeSessionBarLabel(interval: UtcInterval, zoneId: ZoneId): String {
+    val start = interval.start.atZone(zoneId)
+    val end = interval.endExclusive.atZone(zoneId)
+    val timeFormatter = DateTimeFormatter.ofPattern("HH:mm:ss")
+    if (start.toLocalDate() == end.toLocalDate()) {
+        return "${timeFormatter.format(start)} — ${timeFormatter.format(end)}"
+    }
+    val dateTimeFormatter = DateTimeFormatter.ofPattern("MM/dd HH:mm")
+    return "${dateTimeFormatter.format(start)} — ${dateTimeFormatter.format(end)}"
+}
+
+fun formatTypeDailyBarLabel(range: StatisticsRange, date: LocalDate): String = when (range) {
+    StatisticsRange.WEEK -> "周${"一二三四五六日"[date.dayOfWeek.value - 1]} %02d/%02d".format(date.monthValue, date.dayOfMonth)
+    StatisticsRange.MONTH -> "${date.dayOfMonth}日"
+    StatisticsRange.DAY -> date.toString()
+}
+
+fun formatTypeStatisticsPeriodLabel(range: StatisticsRange, date: LocalDate): String = when (range) {
+    StatisticsRange.MONTH -> "${date.year}年${date.monthValue}月"
+    else -> date.toString()
 }
 
 fun formatDuration(duration: Duration): String {

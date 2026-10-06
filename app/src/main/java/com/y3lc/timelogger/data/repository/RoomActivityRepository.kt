@@ -39,6 +39,9 @@ class RoomActivityRepository(private val database: TimeLoggerDatabase) : Activit
     override fun updateClosedSession(id: String, startedAtUtc: Instant, endedAtUtc: Instant, updatedAtUtc: Instant): Boolean =
         activitySessionDao.updateClosedSession(id, startedAtUtc, endedAtUtc, updatedAtUtc) == 1
 
+    override fun deleteClosedSession(id: String): Boolean =
+        activitySessionDao.deleteClosedSession(id) == 1
+
     override fun getActiveSessionByTypeId(activityTypeId: String): ActivitySession? =
         activitySessionDao.getActiveSessionByTypeId(activityTypeId)?.toDomain()
 

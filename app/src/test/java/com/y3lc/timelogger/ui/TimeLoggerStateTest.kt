@@ -2,6 +2,7 @@ package com.y3lc.timelogger.ui
 
 import com.y3lc.timelogger.domain.model.ActivitySession
 import com.y3lc.timelogger.domain.model.ActivityType
+import com.y3lc.timelogger.domain.time.UtcInterval
 import java.time.Instant
 import java.time.Duration
 import java.time.DayOfWeek
@@ -100,8 +101,205 @@ class TimeLoggerStateTest {
     }
 
     @Test
+    fun buildsDailyTypeBarsForEveryDayInTheSelectedWeek() {
+        val summary = buildPeriodSummary(
+            listOf(activityType("walk", "走路", 0)),
+            listOf(
+                activitySession("walk").copy(
+                    startedAtUtc = Instant.parse("2026-10-01T00:00:00Z"),
+                    endedAtUtc = Instant.parse("2026-10-01T01:00:00Z"),
+                ),
+            ),
+            StatisticsRange.WEEK,
+            LocalDate.parse("2026-10-02"),
+            ZoneId.of("UTC"),
+            Instant.parse("2026-10-05T00:00:00Z"),
+        )
+
+        val bars = buildTypeDailyBars(summary, "walk", ZoneId.of("UTC"))
+
+        assertEquals(7, bars.size)
+        assertEquals(LocalDate.parse("2026-09-28"), bars.first().date)
+        assertEquals(LocalDate.parse("2026-10-04"), bars.last().date)
+        assertEquals(Duration.ofHours(1), bars.single { it.date == LocalDate.parse("2026-10-01") }.duration)
+        assertEquals(Duration.ZERO, bars.first().duration)
+    }
+
+    @Test
+    fun buildsDailyTypeBarsForEveryDayInLeapYearFebruary() {
+        val summary = buildPeriodSummary(
+            listOf(activityType("walk", "走路", 0)),
+            listOf(
+                activitySession("walk").copy(
+                    startedAtUtc = Instant.parse("2024-02-29T22:00:00Z"),
+                    endedAtUtc = Instant.parse("2024-03-01T01:00:00Z"),
+                ),
+            ),
+            StatisticsRange.MONTH,
+            LocalDate.parse("2024-02-20"),
+            ZoneId.of("UTC"),
+            Instant.parse("2024-03-01T02:00:00Z"),
+        )
+
+        val bars = buildTypeDailyBars(summary, "walk", ZoneId.of("UTC"))
+
+        assertEquals(29, bars.size)
+        assertEquals(LocalDate.parse("2024-02-01"), bars.first().date)
+        assertEquals(LocalDate.parse("2024-02-29"), bars.last().date)
+        assertEquals(Duration.ofHours(2), bars.last().duration)
+    }
+
+    @Test
+    fun formatsTypeStatisticsLabelsWithoutRepeatedDates() {
+        val zone = ZoneId.of("Asia/Shanghai")
+
+        assertEquals(
+            "15:10:22 — 15:11:30",
+            formatTypeSessionBarLabel(
+                UtcInterval(Instant.parse("2026-10-04T07:10:22Z"), Instant.parse("2026-10-04T07:11:30Z")),
+                zone,
+            ),
+        )
+        assertEquals(
+            "10/04 23:50 — 10/05 00:10",
+            formatTypeSessionBarLabel(
+                UtcInterval(Instant.parse("2026-10-04T15:50:00Z"), Instant.parse("2026-10-04T16:10:00Z")),
+                zone,
+            ),
+        )
+        assertEquals("周日 10/04", formatTypeDailyBarLabel(StatisticsRange.WEEK, LocalDate.parse("2026-10-04")))
+        assertEquals("4日", formatTypeDailyBarLabel(StatisticsRange.MONTH, LocalDate.parse("2026-10-04")))
+        assertEquals("2026年10月", formatTypeStatisticsPeriodLabel(StatisticsRange.MONTH, LocalDate.parse("2026-10-04")))
+    }
+
+    @Test
+    fun buildsIndependentSummariesForEveryStatisticsRange() {
+        val summaries = buildStatisticsSummaries(
+            listOf(activityType("walk", "走路", 0)),
+            listOf(activitySession("walk").copy(endedAtUtc = now)),
+            LocalDate.parse("2026-10-02"),
+            ZoneId.of("UTC"),
+            now,
+        )
+
+        assertEquals(StatisticsRange.entries.toSet(), summaries.keys)
+        assertEquals("2026-10-02", summaries.getValue(StatisticsRange.DAY).dateLabel)
+        assertEquals("2026-09-28 — 2026-10-04", summaries.getValue(StatisticsRange.WEEK).dateLabel)
+        assertEquals("2026-10-01 — 2026-10-31", summaries.getValue(StatisticsRange.MONTH).dateLabel)
+    }
+
+    @Test
+    fun keepsTodaySummaryIndependentFromStatisticsAnchorDate() {
+        val currentNow = Instant.parse("2026-10-03T00:00:00Z")
+        val summaries = buildStatisticsSummaries(
+            listOf(activityType("walk", "走路", 0)),
+            listOf(activitySession("walk").copy(endedAtUtc = currentNow)),
+            LocalDate.parse("2026-10-02"),
+            ZoneId.of("UTC"),
+            currentNow,
+        )
+
+        val today = buildTodaySummary(
+            listOf(activityType("walk", "走路", 0)),
+            listOf(activitySession("walk").copy(endedAtUtc = currentNow)),
+            ZoneId.of("UTC"),
+            currentNow,
+        )
+
+        assertEquals("2026-10-02", summaries.getValue(StatisticsRange.DAY).dateLabel)
+        assertEquals("2026-10-03", today.dateLabel)
+    }
+
+    @Test
     fun parallelTimelineSegmentKeepsItsExactWidth() {
         assertEquals(1f, calculateTimelineSegmentWidth(trackWidth = 10_000f, startFraction = 0.5f, endFraction = 0.5001f), 0f)
+    }
+
+    @Test
+    fun runningTimelineSegmentUsesMinimumVisibleWidth() {
+        val bounds = calculateTimelineSegmentBounds(
+            trackWidth = 360f,
+            startFraction = 0.5f,
+            endFraction = 0.5001f,
+            isRunning = true,
+            minimumVisibleWidth = 2f,
+        )
+
+        assertEquals(180f, bounds.startX, 0f)
+        assertEquals(2f, bounds.width, 0f)
+    }
+
+    @Test
+    fun runningParallelTimelineSegmentUsesMinimumVisibleWidth() {
+        val bounds = calculateTimelineSegmentBounds(
+            trackWidth = 360f,
+            startFraction = 0.5f,
+            endFraction = 0.5001f,
+            isRunning = true,
+            minimumVisibleWidth = 2f,
+        )
+
+        assertEquals(180f, bounds.startX, 0f)
+        assertEquals(2f, bounds.width, 0f)
+    }
+
+    @Test
+    fun runningTimelineSegmentNearTrackEndStaysWithinTrack() {
+        val bounds = calculateTimelineSegmentBounds(
+            trackWidth = 360f,
+            startFraction = 0.999f,
+            endFraction = 1f,
+            isRunning = true,
+            minimumVisibleWidth = 2f,
+        )
+
+        assertEquals(358f, bounds.startX, 0f)
+        assertEquals(2f, bounds.width, 0f)
+        assertEquals(360f, bounds.startX + bounds.width, 0f)
+    }
+
+    @Test
+    fun runningTimelineSegmentUsesWholeTrackWhenTrackIsNarrowerThanMinimumWidth() {
+        val bounds = calculateTimelineSegmentBounds(
+            trackWidth = 1f,
+            startFraction = 0.5f,
+            endFraction = 0.5001f,
+            isRunning = true,
+            minimumVisibleWidth = 2f,
+        )
+
+        assertEquals(0f, bounds.startX, 0f)
+        assertEquals(1f, bounds.width, 0f)
+        assertEquals(1f, bounds.startX + bounds.width, 0f)
+    }
+
+    @Test
+    fun stoppedTimelineSegmentUsesMinimumVisibleWidth() {
+        val bounds = calculateTimelineSegmentBounds(
+            trackWidth = 360f,
+            startFraction = 0.5f,
+            endFraction = 0.5001f,
+            isRunning = false,
+            minimumVisibleWidth = 2f,
+        )
+
+        assertEquals(180f, bounds.startX, 0f)
+        assertEquals(2f, bounds.width, 0f)
+    }
+
+    @Test
+    fun stoppedTimelineSegmentNearTrackEndStaysWithinTrack() {
+        val bounds = calculateTimelineSegmentBounds(
+            trackWidth = 360f,
+            startFraction = 0.999f,
+            endFraction = 1f,
+            isRunning = false,
+            minimumVisibleWidth = 2f,
+        )
+
+        assertEquals(358f, bounds.startX, 0f)
+        assertEquals(2f, bounds.width, 0f)
+        assertEquals(360f, bounds.startX + bounds.width, 0f)
     }
 
     @Test

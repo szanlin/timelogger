@@ -1,6 +1,7 @@
 package com.y3lc.timelogger.ui
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -28,6 +29,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
@@ -47,7 +49,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -57,6 +61,7 @@ import java.time.Duration
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import android.app.DatePickerDialog
 
 @Composable
 fun RecordScreen(state: TimeLoggerUiState, onToggle: (String) -> Unit, onSessionSaved: (SessionTimeEdit, (String?) -> Unit) -> Unit, modifier: Modifier = Modifier) {
@@ -95,19 +100,6 @@ fun RecordScreen(state: TimeLoggerUiState, onToggle: (String) -> Unit, onSession
             gridItems(state.activityTypes, key = ActivityTypeItem::id) { type ->
                 ActivityCard(type, !state.isSaving && state.errorMessage == null, { onToggle(type.id) }, Modifier.heightIn(min = 144.dp))
             }
-            item(span = { GridItemSpan(maxLineSpan) }) {
-                Card(Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Text("当日时间轴", style = MaterialTheme.typography.titleMedium)
-                        if (state.today.timeline.isEmpty()) {
-                            Text("点击活动图标，开始记录今天", style = MaterialTheme.typography.bodyMedium)
-                        } else {
-                            Timeline(state.today, state.statisticsZoneId)
-                        }
-                    }
-                }
-            }
-            item(span = { GridItemSpan(maxLineSpan) }) { Spacer(Modifier.height(8.dp)) }
         }
     }
 }
@@ -140,13 +132,20 @@ private fun ActivityCard(type: ActivityTypeItem, enabled: Boolean, onClick: () -
 }
 
 @Composable
-fun StatisticsScreen(state: TimeLoggerUiState, onRangeSelected: (StatisticsRange) -> Unit, modifier: Modifier = Modifier) {
+fun StatisticsScreen(
+    state: TimeLoggerUiState,
+    onRangeSelected: (StatisticsRange) -> Unit,
+    onAnchorDateSelected: (java.time.LocalDate) -> Unit,
+    onSessionDeleted: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
     var selectedTypeId by rememberSaveable { mutableStateOf<String?>(null) }
     val selectedType = state.statistics.ranking.firstOrNull { it.typeId == selectedTypeId }
-    selectedType?.let { type ->
-        TypeStatisticsDetailDialog(type, state.statistics, state.statisticsZoneId) {
+    if (selectedType != null) {
+        TypeStatisticsPage(selectedType, state.statisticsByRange, state.statisticsRange, state.statisticsAnchorDate, state.statisticsZoneId, onAnchorDateSelected, onSessionDeleted, {
             selectedTypeId = null
-        }
+        }, modifier)
+        return
     }
     LazyColumn(modifier.testTag("statistics-list"), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         item {
@@ -166,8 +165,7 @@ fun StatisticsScreen(state: TimeLoggerUiState, onRangeSelected: (StatisticsRange
                         )
                     }
                 }
-                Text(state.statisticsRange.periodLabel, modifier = Modifier.testTag("statistics-period-label"), style = MaterialTheme.typography.titleLarge)
-                Text(state.statistics.dateLabel, style = MaterialTheme.typography.bodyMedium)
+                StatisticsPeriodNavigator(state.statisticsRange, state.statisticsAnchorDate, state.statistics, state.statisticsZoneId, onAnchorDateSelected)
                 Text("统计时区 ${state.statisticsZoneId.id}", style = MaterialTheme.typography.bodySmall)
             }
         }
@@ -215,40 +213,148 @@ fun StatisticsScreen(state: TimeLoggerUiState, onRangeSelected: (StatisticsRange
 }
 
 @Composable
-private fun TypeStatisticsDetailDialog(type: TypeRanking, summary: PeriodSummary, zoneId: ZoneId, onDismiss: () -> Unit) {
-    val dailyDetails = buildActivityTypeDailyDetails(summary.timeline, type.typeId, zoneId)
-    val formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss").withZone(zoneId)
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        modifier = Modifier.testTag("statistics-type-detail"),
-        title = { Text("${type.name}详情", modifier = Modifier.testTag("statistics-type-detail-title")) },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(summary.dateLabel, style = MaterialTheme.typography.bodyMedium)
-                Text("周期累计 ${formatDuration(type.duration)}", style = MaterialTheme.typography.titleMedium)
-                LazyColumn(Modifier.heightIn(max = 360.dp)) {
-                    items(dailyDetails, key = ActivityTypeDailyDetail::date) { detail ->
-                        Column(verticalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.padding(vertical = 8.dp)) {
-                            Text("${detail.date} · ${formatDuration(detail.totalDuration)}", style = MaterialTheme.typography.titleSmall)
-                            detail.sessions.forEach { session ->
-                                Column(
-                                    Modifier.fillMaxWidth().testTag("statistics-type-detail-session"),
-                                    verticalArrangement = Arrangement.spacedBy(2.dp),
-                                ) {
-                                    Text(formatter.format(session.interval.start))
-                                    Text(if (session.isRunning) "进行中，截至 ${formatter.format(session.interval.endExclusive)}" else "至 ${formatter.format(session.interval.endExclusive)}")
-                                    Text("时长 ${formatDuration(Duration.between(session.interval.start, session.interval.endExclusive))}", style = MaterialTheme.typography.bodySmall)
-                                }
-                            }
-                        }
+@OptIn(ExperimentalMaterial3Api::class)
+private fun TypeStatisticsPage(
+    type: TypeRanking,
+    summaries: Map<StatisticsRange, PeriodSummary>,
+    initialRange: StatisticsRange,
+    anchorDate: java.time.LocalDate?,
+    zoneId: ZoneId,
+    onAnchorDateSelected: (java.time.LocalDate) -> Unit,
+    onSessionDeleted: (String) -> Unit,
+    onBack: () -> Unit,
+    modifier: Modifier,
+) {
+    var range by rememberSaveable(type.typeId) { mutableStateOf(initialRange) }
+    val summary = summaries.getValue(range)
+    val currentType = summary.ranking.firstOrNull { it.typeId == type.typeId } ?: type.copy(duration = Duration.ZERO)
+    var deleteSessionId by rememberSaveable { mutableStateOf<String?>(null) }
+    val sessions = filterTimelineByActivityType(summary.timeline, currentType.typeId)
+    val sessionToDelete = sessions.firstOrNull { it.sessionId == deleteSessionId && !it.isRunning }
+    if (deleteSessionId != null && sessionToDelete == null) deleteSessionId = null
+    sessionToDelete?.let { session ->
+        AlertDialog(
+            onDismissRequest = { deleteSessionId = null },
+            title = { Text("删除记录") },
+            text = { Text("确认删除这条已结束记录吗？此操作无法撤销。") },
+            confirmButton = {
+                TextButton(onClick = { onSessionDeleted(session.sessionId); deleteSessionId = null }, modifier = Modifier.testTag("statistics-type-delete-confirm")) { Text("删除") }
+            },
+            dismissButton = {
+                TextButton(onClick = { deleteSessionId = null }, modifier = Modifier.testTag("statistics-type-delete-cancel")) { Text("取消") }
+            },
+        )
+    }
+    val dailyBars = if (range == StatisticsRange.DAY) emptyList() else buildTypeDailyBars(summary, currentType.typeId, zoneId)
+    val maxDuration = (if (range == StatisticsRange.DAY) sessions.map { Duration.between(it.interval.start, it.interval.endExclusive) } else dailyBars.map(TypeDailyBar::duration))
+        .maxOrNull()
+        ?.toMillis()
+        ?.coerceAtLeast(1)
+        ?: 1L
+    val periodLabel = if (range == StatisticsRange.MONTH) {
+        formatTypeStatisticsPeriodLabel(range, checkNotNull(summary.interval).start.atZone(zoneId).toLocalDate())
+    } else {
+        summary.dateLabel
+    }
+    Column(modifier.fillMaxSize().testTag("statistics-type-page")) {
+        Row(Modifier.fillMaxWidth().height(48.dp), verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = onBack, modifier = Modifier.testTag("statistics-type-page-back")) { Text("<", style = MaterialTheme.typography.headlineMedium) }
+            Text("${type.name}统计", modifier = Modifier.testTag("statistics-type-page-title"), style = MaterialTheme.typography.titleLarge)
+        }
+        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+            StatisticsRange.entries.forEachIndexed { index, candidate ->
+                SegmentedButton(
+                    selected = range == candidate,
+                    onClick = { range = candidate },
+                    shape = SegmentedButtonDefaults.itemShape(index, StatisticsRange.entries.size),
+                    modifier = Modifier.weight(1f).testTag("type-period-${candidate.name.lowercase()}"),
+                    label = { Text(candidate.label) },
+                )
+            }
+        }
+        StatisticsPeriodNavigator(range, anchorDate, summary, zoneId, onAnchorDateSelected)
+        LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            item {
+                Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(periodLabel, style = MaterialTheme.typography.bodyMedium)
+                        Text("累计 ${formatDuration(currentType.duration)}", style = MaterialTheme.typography.headlineSmall)
+                        Text("记录次数 ${sessions.size}", modifier = Modifier.testTag("statistics-type-session-count"), style = MaterialTheme.typography.titleMedium)
                     }
                 }
             }
-        },
-        confirmButton = {
-            TextButton(onClick = onDismiss, modifier = Modifier.testTag("statistics-type-detail-close")) { Text("关闭") }
-        },
-    )
+            if (range == StatisticsRange.DAY) {
+                items(sessions, key = TimelineItem::sessionId) { session ->
+                    val duration = Duration.between(session.interval.start, session.interval.endExclusive)
+                    TypeStatisticsBar(
+                        title = formatTypeSessionBarLabel(session.interval, zoneId) + if (session.isRunning) "（进行中）" else "",
+                        duration = duration,
+                        maxMillis = maxDuration,
+                        color = Color(currentType.colorArgb),
+                        modifier = (if (session.isRunning) Modifier else Modifier.combinedClickable(onClick = {}, onLongClick = { deleteSessionId = session.sessionId }))
+                            .testTag("statistics-type-record-bar"),
+                    )
+                }
+            } else {
+                items(dailyBars, key = TypeDailyBar::date) { day ->
+                    TypeStatisticsBar(
+                        title = formatTypeDailyBarLabel(range, day.date),
+                        duration = day.duration,
+                        maxMillis = maxDuration,
+                        color = Color(currentType.colorArgb),
+                        modifier = Modifier.testTag("statistics-type-day-bar"),
+                    )
+                }
+            }
+            item { Spacer(Modifier.height(8.dp)) }
+        }
+    }
+}
+
+@Composable
+private fun StatisticsPeriodNavigator(
+    range: StatisticsRange,
+    anchorDate: java.time.LocalDate?,
+    summary: PeriodSummary,
+    zoneId: ZoneId,
+    onDateSelected: (java.time.LocalDate) -> Unit,
+) {
+    val context = LocalContext.current
+    val selectedDate = anchorDate ?: checkNotNull(summary.interval).start.atZone(zoneId).toLocalDate()
+    if (range == StatisticsRange.DAY) {
+        TextButton(
+            onClick = {
+                DatePickerDialog(context, { _, year, month, day -> onDateSelected(java.time.LocalDate.of(year, month + 1, day)) }, selectedDate.year, selectedDate.monthValue - 1, selectedDate.dayOfMonth).show()
+            },
+            modifier = Modifier.testTag("statistics-period-label"),
+        ) { Text(summary.dateLabel, style = MaterialTheme.typography.titleLarge, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis) }
+    } else {
+        Text(
+            summary.dateLabel,
+            modifier = Modifier.fillMaxWidth().testTag("statistics-period-label"),
+            style = MaterialTheme.typography.titleLarge,
+            maxLines = 1,
+            softWrap = false,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+@Composable
+private fun TypeStatisticsBar(title: String, duration: Duration, maxMillis: Long, color: Color, modifier: Modifier) {
+    Card(modifier = modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(title, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+                Text(formatDuration(duration), style = MaterialTheme.typography.titleSmall)
+            }
+            LinearProgressIndicator(
+                progress = { duration.toMillis().toFloat() / maxMillis },
+                color = color,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+    }
 }
 
 @Composable
@@ -420,13 +526,18 @@ private fun Timeline(summary: PeriodSummary, zoneId: ZoneId) {
                 val end = Duration.between(period.start, segment.endExclusive).toMillis() / periodMillis
                 val height = if (segment.items.size > 1) parallelHeight else normalHeight
                 val color = if (segment.items.size > 1) parallelColor else Color(segment.items.single().colorArgb)
-                val startX = size.width * start.toFloat()
-                val width = calculateTimelineSegmentWidth(size.width, start.toFloat(), end.toFloat())
-                if (width > 0f) {
+                val bounds = calculateTimelineSegmentBounds(
+                    trackWidth = size.width,
+                    startFraction = start.toFloat(),
+                    endFraction = end.toFloat(),
+                    isRunning = segment.items.any { it.isRunning },
+                    minimumVisibleWidth = 2.dp.toPx(),
+                )
+                if (bounds.width > 0f) {
                     drawRoundRect(
                         color,
-                        topLeft = Offset(startX, (size.height - height) / 2f),
-                        size = Size(width, height),
+                        topLeft = Offset(bounds.startX, (size.height - height) / 2f),
+                        size = Size(bounds.width, height),
                         cornerRadius = CornerRadius(height / 2f),
                     )
                 }
@@ -460,4 +571,22 @@ internal fun calculateTimelineSegmentWidth(trackWidth: Float, startFraction: Flo
     val startX = (trackWidth * startFraction).coerceIn(0f, trackWidth)
     val endX = (trackWidth * endFraction).coerceIn(startX, trackWidth)
     return endX - startX
+}
+
+internal data class TimelineSegmentBounds(val startX: Float, val width: Float)
+
+internal fun calculateTimelineSegmentBounds(
+    trackWidth: Float,
+    startFraction: Float,
+    endFraction: Float,
+    isRunning: Boolean,
+    minimumVisibleWidth: Float,
+): TimelineSegmentBounds {
+    val startX = (trackWidth * startFraction).coerceIn(0f, trackWidth)
+    val exactWidth = calculateTimelineSegmentWidth(trackWidth, startFraction, endFraction)
+    if (endFraction <= startFraction || exactWidth >= minimumVisibleWidth) {
+        return TimelineSegmentBounds(startX, exactWidth)
+    }
+    val visibleWidth = minimumVisibleWidth.coerceAtMost(trackWidth)
+    return TimelineSegmentBounds(startX.coerceAtMost(trackWidth - visibleWidth), visibleWidth)
 }

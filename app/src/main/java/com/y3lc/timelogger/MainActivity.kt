@@ -67,6 +67,7 @@ class MainActivity : ComponentActivity() {
                     viewModel::selectTab,
                     viewModel::toggleActivity,
                     viewModel::selectStatisticsRange,
+                    viewModel::selectStatisticsAnchorDate,
                     viewModel::refresh,
                     viewModel::saveStatisticsZone,
                     viewModel::setWeekStart,
@@ -75,6 +76,7 @@ class MainActivity : ComponentActivity() {
                     viewModel::moveActivityType,
                     viewModel::archiveActivityType,
                     viewModel::saveSessionTimes,
+                    viewModel::deleteActivitySession,
                 )
             }
         }
@@ -87,6 +89,7 @@ private fun TimeLoggerApp(
     onTabSelected: (MainTab) -> Unit,
     onToggle: (String) -> Unit,
     onRangeSelected: (StatisticsRange) -> Unit,
+    onAnchorDateSelected: (java.time.LocalDate) -> Unit,
     onRetry: () -> Unit,
     onZoneSaved: (String?) -> Unit,
     onWeekStartChanged: (DayOfWeek) -> Unit,
@@ -95,6 +98,7 @@ private fun TimeLoggerApp(
     onTypeMoved: (String, Int) -> Unit,
     onTypeArchived: (String) -> Unit,
     onSessionSaved: (SessionTimeEdit, (String?) -> Unit) -> Unit,
+    onSessionDeleted: (String) -> Unit,
 ) {
     Scaffold(
         bottomBar = {
@@ -113,7 +117,7 @@ private fun TimeLoggerApp(
             }
         },
     ) { padding ->
-        MainScreen(uiState, padding, onToggle, onRangeSelected, onRetry, onZoneSaved, onWeekStartChanged, onTypeCreated, onTypeUpdated, onTypeMoved, onTypeArchived, onSessionSaved)
+        MainScreen(uiState, padding, onToggle, onRangeSelected, onAnchorDateSelected, onRetry, onZoneSaved, onWeekStartChanged, onTypeCreated, onTypeUpdated, onTypeMoved, onTypeArchived, onSessionSaved, onSessionDeleted)
     }
 }
 
@@ -129,6 +133,7 @@ private fun MainScreen(
     padding: PaddingValues,
     onToggle: (String) -> Unit,
     onRangeSelected: (StatisticsRange) -> Unit,
+    onAnchorDateSelected: (java.time.LocalDate) -> Unit,
     onRetry: () -> Unit,
     onZoneSaved: (String?) -> Unit,
     onWeekStartChanged: (DayOfWeek) -> Unit,
@@ -137,6 +142,7 @@ private fun MainScreen(
     onTypeMoved: (String, Int) -> Unit,
     onTypeArchived: (String) -> Unit,
     onSessionSaved: (SessionTimeEdit, (String?) -> Unit) -> Unit,
+    onSessionDeleted: (String) -> Unit,
 ) {
     AppPageContainer(Modifier.padding(padding)) {
         if (uiState.isLoading) {
@@ -149,7 +155,7 @@ private fun MainScreen(
         if (!uiState.isLoading) {
             when (uiState.selectedTab) {
                 MainTab.RECORD -> RecordScreen(uiState, onToggle, onSessionSaved, Modifier.weight(1f).padding(top = 16.dp))
-                MainTab.STATISTICS -> StatisticsScreen(uiState, onRangeSelected, Modifier.weight(1f).padding(top = 16.dp))
+                MainTab.STATISTICS -> StatisticsScreen(uiState, onRangeSelected, onAnchorDateSelected, onSessionDeleted, Modifier.weight(1f).padding(top = 16.dp))
                 MainTab.SETTINGS -> SettingsScreen(
                     uiState,
                     onZoneSaved,

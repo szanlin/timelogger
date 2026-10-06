@@ -54,6 +54,7 @@ import org.junit.Test
 import org.junit.rules.ExternalResource
 import java.time.DayOfWeek
 import java.time.Instant
+import java.time.temporal.ChronoUnit
 
 class MainActivityTest {
     @get:Rule(order = 0)
@@ -297,22 +298,22 @@ class MainActivityTest {
     }
 
     @Test
-    fun homeUsesOneSharedTimelineAndKeepsCoverageInStatistics() {
+    fun homeOmitsTimelineWhileDayStatisticsKeepsIt() {
         composeTestRule.onAllNodesWithText("覆盖时长").assertCountEquals(0)
+        composeTestRule.onAllNodesWithText("当日时间轴").assertCountEquals(0)
+        composeTestRule.onAllNodesWithTag("timeline-track").assertCountEquals(0)
 
         composeTestRule.onNodeWithTag("activity-sleep").performClick()
         awaitStableState()
-        composeTestRule.onNodeWithTag("activity-walk").performClick()
-        awaitStableState()
-
-        composeTestRule.onNodeWithTag("record-list").performScrollToNode(hasTestTag("timeline-track"))
-        composeTestRule.onAllNodesWithTag("timeline-track").assertCountEquals(1)
-        composeTestRule.onNodeWithTag("timeline-track").assertContentDescriptionContains("并行", substring = true)
-        composeTestRule.onNodeWithTag("timeline-track").assertContentDescriptionContains("进行中", substring = true)
+        composeTestRule.onAllNodesWithText("当日时间轴").assertCountEquals(0)
+        composeTestRule.onAllNodesWithTag("timeline-track").assertCountEquals(0)
 
         composeTestRule.onNodeWithTag("nav-statistics").performClick()
         composeTestRule.onNodeWithTag("statistics-duration-summary").assertExists()
         composeTestRule.onNodeWithText("覆盖时长").assertExists()
+        composeTestRule.onNodeWithTag("statistics-list").performScrollToNode(hasTestTag("timeline-track"))
+        composeTestRule.onNodeWithText("当日时间轴").assertExists()
+        composeTestRule.onNodeWithTag("timeline-track").assertExists()
     }
 
     @Test
@@ -341,10 +342,29 @@ class MainActivityTest {
             composeTestRule.onNodeWithTag("period-$range").performClick()
             composeTestRule.onNodeWithTag("statistics-list").performScrollToNode(hasTestTag("statistics-type-walk"))
             composeTestRule.onNodeWithTag("statistics-type-walk").performClick()
-            composeTestRule.onNodeWithTag("statistics-type-detail").assertIsDisplayed()
-            composeTestRule.onNodeWithTag("statistics-type-detail-title").assertTextContains("走路")
-            composeTestRule.onAllNodesWithTag("statistics-type-detail-session").assertCountEquals(1)
-            composeTestRule.onNodeWithTag("statistics-type-detail-close").performClick()
+            composeTestRule.onNodeWithTag("statistics-type-page").assertIsDisplayed()
+            composeTestRule.onNodeWithTag("statistics-type-page-title").assertTextContains("走路")
+            composeTestRule.onNodeWithTag("statistics-type-session-count").assertTextContains("1")
+            if (range == "day") {
+                composeTestRule.onAllNodesWithTag("statistics-type-record-bar").assertCountEquals(1)
+            } else {
+                val summary = viewModel.uiState.value.statistics
+                val zoneId = viewModel.uiState.value.statisticsZoneId
+                val interval = checkNotNull(summary.interval)
+                val expectedDayCount = ChronoUnit.DAYS.between(
+                    interval.start.atZone(zoneId).toLocalDate(),
+                    interval.endExclusive.minusNanos(1).atZone(zoneId).toLocalDate(),
+                ).toInt() + 1
+                composeTestRule.onAllNodesWithTag("statistics-type-day-bar").assertCountEquals(expectedDayCount)
+            }
+            composeTestRule.onNodeWithTag("statistics-type-page-back").performClick()
+            composeTestRule.onNodeWithTag("statistics-period-label").assertTextEquals(
+                when (range) {
+                    "day" -> "今天"
+                    "week" -> "本周"
+                    else -> "本月"
+                },
+            )
         }
     }
 

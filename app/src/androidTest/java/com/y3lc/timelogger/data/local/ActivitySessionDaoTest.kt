@@ -139,6 +139,18 @@ class ActivitySessionDaoTest {
         assertEquals(null, sessionDao.getById("running")?.endedAtUtc)
     }
 
+    @Test
+    fun deleteClosedSessionNeverDeletesRunningSession() {
+        sessionDao.insert(activitySession("closed", "walking").copy(endedAtUtc = start.plusSeconds(60)))
+        sessionDao.insert(activitySession("running", "reading"))
+
+        assertEquals(1, sessionDao.deleteClosedSession("closed"))
+        assertEquals(0, sessionDao.deleteClosedSession("running"))
+        assertEquals(0, sessionDao.deleteClosedSession("missing"))
+        assertEquals(null, sessionDao.getById("closed"))
+        assertEquals(null, sessionDao.getById("running")?.endedAtUtc)
+    }
+
     private fun activityType(id: String) = ActivityTypeEntity(
         id = id,
         name = id,
