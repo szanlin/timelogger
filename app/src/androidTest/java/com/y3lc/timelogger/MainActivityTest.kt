@@ -21,6 +21,7 @@ import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertWidthIsAtLeast
 import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onAllNodesWithTag
@@ -31,17 +32,23 @@ import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.swipeDown
+import androidx.compose.ui.test.swipeUp
 import androidx.lifecycle.ViewModelProvider
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.unit.dp
 import androidx.test.platform.app.InstrumentationRegistry
+import androidx.test.espresso.Espresso
 import com.y3lc.timelogger.ui.TimeLoggerViewModel
 import com.y3lc.timelogger.ui.ActivityTypeItem
 import com.y3lc.timelogger.ui.SettingsScreen
 import com.y3lc.timelogger.ui.TimeLoggerUiState
 import com.y3lc.timelogger.ui.RecordScreen
+import com.y3lc.timelogger.ui.HistoryScreen
+import com.y3lc.timelogger.ui.HistorySessionItem
 import com.y3lc.timelogger.data.local.TimeLoggerDatabase
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -54,6 +61,9 @@ import org.junit.Test
 import org.junit.rules.ExternalResource
 import java.time.DayOfWeek
 import java.time.Instant
+import java.time.LocalDate
+import java.time.YearMonth
+import java.time.ZoneId
 import java.time.temporal.ChronoUnit
 
 class MainActivityTest {
@@ -420,6 +430,51 @@ class MainActivityTest {
     }
 
     @Test
+    fun historyOpensAsPageAndReturnsToRecord() {
+        composeTestRule.onNodeWithTag("record-list").performScrollToNode(hasTestTag("history-open"))
+        composeTestRule.onNodeWithTag("history-open").performClick()
+
+        composeTestRule.onNodeWithTag("history-screen").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("history-back").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("record-list").assertDoesNotExist()
+        composeTestRule.onNodeWithTag("nav-record").assertDoesNotExist()
+        composeTestRule.onNodeWithTag("nav-statistics").assertDoesNotExist()
+        composeTestRule.onNodeWithTag("nav-settings").assertDoesNotExist()
+
+        composeTestRule.onNodeWithTag("history-back").performClick()
+        composeTestRule.onNodeWithTag("record-list").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("nav-record").assertIsDisplayed()
+
+        composeTestRule.onNodeWithTag("record-list").performScrollToNode(hasTestTag("history-open"))
+        composeTestRule.onNodeWithTag("history-open").performClick()
+        Espresso.pressBack()
+        composeTestRule.onNodeWithTag("record-list").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("nav-record").assertIsDisplayed()
+    }
+
+    @Test
+    fun historyPageShowsErrorAndRetry() {
+        composeTestRule.onNodeWithTag("record-list").performScrollToNode(hasTestTag("history-open"))
+        composeTestRule.onNodeWithTag("history-open").performClick()
+        composeTestRule.onNodeWithTag("history-screen").assertIsDisplayed()
+
+        try {
+            composeTestRule.runOnUiThread { viewModel.saveStatisticsZone("Invalid/Timezone") }
+            composeTestRule.onNodeWithText("请输入有效的 IANA 时区").assertIsDisplayed()
+            composeTestRule.onNodeWithTag("retry").assertIsDisplayed().performClick()
+
+            awaitStableState()
+            composeTestRule.onNodeWithTag("retry").assertDoesNotExist()
+            composeTestRule.onNodeWithTag("history-screen").assertIsDisplayed()
+        } finally {
+            if (viewModel.uiState.value.errorMessage != null) {
+                composeTestRule.runOnUiThread { viewModel.refresh() }
+                awaitStableState()
+            }
+        }
+    }
+
+    @Test
     fun historyEditorRejectsMissingDstTimeAndSavesExplicitOverlapOffsets() {
         composeTestRule.runOnUiThread { viewModel.saveStatisticsZone("America/New_York") }
         awaitStableState()
@@ -429,6 +484,7 @@ class MainActivityTest {
         awaitStableState()
         composeTestRule.onNodeWithTag("record-list").performScrollToNode(androidx.compose.ui.test.hasTestTag("history-open"))
         composeTestRule.onNodeWithTag("history-open").performClick()
+        composeTestRule.onNodeWithTag("history-content").performScrollToNode(hasTestTag("history-edit-0"))
         composeTestRule.onNodeWithTag("history-edit-0").performClick()
         composeTestRule.onNodeWithTag("session-start-input").performTextReplacement("2026-03-08 02:30:00")
         composeTestRule.onNodeWithTag("session-start-error").assertTextEquals("此时刻因夏令时跳变不存在，请重新选择")
@@ -442,11 +498,156 @@ class MainActivityTest {
         awaitStableState()
         assertEquals(Instant.parse("2026-11-01T05:30:00Z"), viewModel.uiState.value.historySessions.single().startedAtUtc)
         assertEquals(Instant.parse("2026-11-01T06:15:00Z"), viewModel.uiState.value.historySessions.single().endedAtUtc)
+        composeTestRule.onNodeWithTag("history-content").performScrollToNode(hasTestTag("history-edit-0"))
         composeTestRule.onNodeWithTag("history-edit-0").performClick()
         composeTestRule.onNodeWithTag("session-start-input").assertTextContains("2026-11-01 01:30:00.000")
         composeTestRule.onNodeWithTag("session-end-input").assertTextContains("2026-11-01 01:15:00.000")
         composeTestRule.onNodeWithTag("session-start-offset--04:00").assertIsSelected()
         composeTestRule.onNodeWithTag("session-end-offset--05:00").assertIsSelected()
+    }
+
+    @Test
+    fun historyActivityGridShowsRecordedDayAsActivitySquare() {
+        composeTestRule.onNodeWithTag("activity-walk").performClick()
+        awaitStableState()
+        composeTestRule.onNodeWithTag("activity-walk").performClick()
+        awaitStableState()
+        val state = viewModel.uiState.value
+        val recordDate = state.historySessions.single().startedAtUtc.atZone(state.statisticsZoneId).toLocalDate()
+
+        composeTestRule.onNodeWithTag("record-list").performScrollToNode(hasTestTag("history-open"))
+        composeTestRule.onNodeWithTag("history-open").performClick()
+
+        composeTestRule.onNodeWithTag("history-month-pager").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("history-date-$recordDate")
+            .assertIsDisplayed()
+            .assertContentDescriptionContains("$recordDate，1 条记录")
+    }
+
+    @Test
+    fun historyCalendarShowsSevenWeekdaysAndSwipesBetweenMonths() {
+        val zone = ZoneId.of("UTC")
+        val today = LocalDate.now(zone)
+        val currentMonth = YearMonth.from(today)
+        val previousMonth = currentMonth.minusMonths(1)
+        val previousRecordDate = previousMonth.atDay(15)
+        fun session(id: String, date: LocalDate) = HistorySessionItem(
+            id,
+            "走路",
+            date.atTime(10, 0).atZone(zone).toInstant(),
+            date.atTime(11, 0).atZone(zone).toInstant(),
+        )
+        composeTestRule.activity.setContent {
+            HistoryScreen(
+                state = TimeLoggerUiState(
+                    statisticsZoneId = zone,
+                    historySessions = listOf(session("current", today), session("previous", previousRecordDate)),
+                ),
+                onSave = { _, _ -> },
+                onBack = {},
+            )
+        }
+
+        composeTestRule.onNodeWithTag("history-month-label")
+            .assertTextEquals("${currentMonth.year}年${currentMonth.monthValue}月")
+        listOf("一", "二", "三", "四", "五", "六", "日").forEachIndexed { index, label ->
+            composeTestRule.onNodeWithTag("history-weekday-$index").assertTextEquals(label)
+        }
+        composeTestRule.onNodeWithTag("history-date-$today").assertTextEquals(today.dayOfMonth.toString())
+        composeTestRule.onNodeWithTag("history-date-${currentMonth.atDay(1)}").assertExists()
+        composeTestRule.onNodeWithTag("history-date-${currentMonth.atEndOfMonth()}").assertExists()
+        composeTestRule.onNodeWithTag("history-date-$previousRecordDate").assertDoesNotExist()
+        composeTestRule.onNodeWithTag("history-activity-scroll").assertDoesNotExist()
+        composeTestRule.onNodeWithTag("history-month-previous").assertDoesNotExist()
+        composeTestRule.onNodeWithTag("history-month-next").assertDoesNotExist()
+
+        composeTestRule.onNodeWithTag("history-month-pager").performTouchInput { swipeDown(durationMillis = 500) }
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("history-month-label")
+            .assertTextEquals("${previousMonth.year}年${previousMonth.monthValue}月")
+        composeTestRule.onNodeWithTag("history-date-$previousRecordDate").assertTextEquals("15")
+        composeTestRule.onNodeWithTag("history-date-$previousRecordDate")
+            .assertContentDescriptionContains("$previousRecordDate，1 条记录")
+        composeTestRule.onNodeWithTag("history-date-$today").assertDoesNotExist()
+
+        composeTestRule.onNodeWithTag("history-month-pager").performTouchInput { swipeUp(durationMillis = 500) }
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("history-date-$today").assertExists()
+    }
+
+    @Test
+    fun historyCalendarVerticalSwipeStopsAtTwelveMonthBoundary() {
+        val zone = ZoneId.of("UTC")
+        val currentMonth = YearMonth.now(zone)
+        composeTestRule.activity.setContent {
+            HistoryScreen(TimeLoggerUiState(statisticsZoneId = zone), onSave = { _, _ -> }, onBack = {})
+        }
+
+        repeat(11) {
+            composeTestRule.onNodeWithTag("history-month-pager").performTouchInput { swipeDown(durationMillis = 500) }
+            composeTestRule.waitForIdle()
+        }
+        composeTestRule.onNodeWithTag("history-month-label").assertTextEquals(
+            "${currentMonth.minusMonths(11).year}年${currentMonth.minusMonths(11).monthValue}月",
+        )
+        composeTestRule.onNodeWithTag("history-month-pager").performTouchInput { swipeDown(durationMillis = 500) }
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("history-month-label").assertTextEquals(
+            "${currentMonth.minusMonths(11).year}年${currentMonth.minusMonths(11).monthValue}月",
+        )
+        composeTestRule.onNodeWithTag("history-month-pager").performTouchInput { swipeUp(durationMillis = 500) }
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("history-month-label").assertTextEquals(
+            "${currentMonth.minusMonths(10).year}年${currentMonth.minusMonths(10).monthValue}月",
+        )
+    }
+
+    @Test
+    fun historyCalendarShowsLastDateOfSixWeekMonthWithinPager() {
+        val zone = ZoneId.of("UTC")
+        val currentMonth = YearMonth.now(zone)
+        val monthsBack = (0..11).first { offset ->
+            val month = currentMonth.minusMonths(offset.toLong())
+            month.atDay(1).dayOfWeek.value - 1 + month.lengthOfMonth() > 35
+        }
+        val month = currentMonth.minusMonths(monthsBack.toLong())
+        composeTestRule.activity.setContent {
+            HistoryScreen(TimeLoggerUiState(statisticsZoneId = zone), onSave = { _, _ -> }, onBack = {})
+        }
+
+        repeat(monthsBack) {
+            composeTestRule.onNodeWithTag("history-month-pager").performTouchInput { swipeDown(durationMillis = 500) }
+            composeTestRule.waitForIdle()
+        }
+        val lastDay = composeTestRule.onNodeWithTag("history-date-${month.atEndOfMonth()}")
+        lastDay.assertIsDisplayed()
+        val pagerBounds = composeTestRule.onNodeWithTag("history-month-pager").getUnclippedBoundsInRoot()
+        val labelTop = composeTestRule.onNodeWithTag("history-month-label").getUnclippedBoundsInRoot().top
+        val dateBottom = lastDay.getUnclippedBoundsInRoot().bottom
+        assertTrue("六周月份的月份标题必须保留顶部留白", labelTop >= pagerBounds.top + 12.dp)
+        assertTrue("六周月份的月底日期必须保留底部留白", dateBottom <= pagerBounds.bottom - 12.dp)
+    }
+
+    @Test
+    fun historyCalendarRespectsSundayStartAndMarksFutureDates() {
+        val zone = ZoneId.of("UTC")
+        val today = LocalDate.now(zone)
+        composeTestRule.activity.setContent {
+            HistoryScreen(
+                TimeLoggerUiState(statisticsZoneId = zone, firstDayOfWeek = DayOfWeek.SUNDAY),
+                onSave = { _, _ -> },
+                onBack = {},
+            )
+        }
+
+        composeTestRule.onNodeWithTag("history-weekday-0").assertTextEquals("日")
+        composeTestRule.onNodeWithTag("history-weekday-1").assertTextEquals("一")
+        composeTestRule.onNodeWithTag("history-weekday-6").assertTextEquals("六")
+        if (today.dayOfMonth < YearMonth.from(today).lengthOfMonth()) {
+            val futureDate = today.plusDays(1)
+            composeTestRule.onNodeWithTag("history-date-$futureDate")
+                .assertContentDescriptionContains("$futureDate，未来")
+        }
     }
 
     @Test
@@ -457,6 +658,7 @@ class MainActivityTest {
         awaitStableState()
         composeTestRule.onNodeWithTag("record-list").performScrollToNode(androidx.compose.ui.test.hasTestTag("history-open"))
         composeTestRule.onNodeWithTag("history-open").performClick()
+        composeTestRule.onNodeWithTag("history-content").performScrollToNode(hasTestTag("history-edit-0"))
         composeTestRule.onNodeWithTag("history-edit-0").performClick()
         composeTestRule.onNodeWithTag("session-start-input").performTextReplacement("2026-01-01 10:00:00")
         composeTestRule.onNodeWithTag("session-end-input").performTextReplacement("2026-01-01 10:00:00")
@@ -477,6 +679,7 @@ class MainActivityTest {
             database.openHelper.writableDatabase.execSQL("CREATE TRIGGER reject_history_edit BEFORE UPDATE ON activity_sessions BEGIN SELECT RAISE(ABORT, '测试编辑失败'); END")
             composeTestRule.onNodeWithTag("record-list").performScrollToNode(androidx.compose.ui.test.hasTestTag("history-open"))
             composeTestRule.onNodeWithTag("history-open").performClick()
+            composeTestRule.onNodeWithTag("history-content").performScrollToNode(hasTestTag("history-edit-0"))
             composeTestRule.onNodeWithTag("history-edit-0").performClick()
             composeTestRule.onNodeWithTag("session-start-input").performTextReplacement("2026-01-01 10:00:00")
             composeTestRule.onNodeWithTag("session-end-input").performTextReplacement("2026-01-01 11:00:00")
@@ -488,6 +691,7 @@ class MainActivityTest {
             database.openHelper.writableDatabase.execSQL("DROP TRIGGER reject_history_edit")
             composeTestRule.onNodeWithTag("session-save").performClick()
             awaitStableState()
+            composeTestRule.onNodeWithTag("history-content").performScrollToNode(hasTestTag("history-edit-0"))
             composeTestRule.onNodeWithTag("history-edit-0").assertExists()
             assertEquals(3600L, java.time.Duration.between(viewModel.uiState.value.historySessions.single().startedAtUtc, viewModel.uiState.value.historySessions.single().endedAtUtc).seconds)
         } finally {
@@ -532,7 +736,7 @@ class MainActivityTest {
             composeTestRule.runOnUiThread {
                 composeTestRule.activity.setContent {
                     Box(Modifier.requiredWidth(width.dp)) {
-                        RecordScreen(state, {}, { _, _ -> }, Modifier.fillMaxWidth().height(800.dp))
+                        RecordScreen(state, {}, {}, Modifier.fillMaxWidth().height(800.dp))
                     }
                 }
             }

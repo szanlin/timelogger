@@ -372,6 +372,78 @@ class TimeLoggerStateTest {
     }
 
     @Test
+    fun historyActivityCellsFollowContinuousWeeksAndLocalDayOverlap() {
+        val sessions = listOf(
+            HistorySessionItem(
+                "cross-month",
+                "走路",
+                Instant.parse("2026-09-30T23:30:00Z"),
+                Instant.parse("2026-10-01T00:30:00Z"),
+            ),
+            HistorySessionItem(
+                "cross-day",
+                "睡觉",
+                Instant.parse("2026-10-05T23:00:00Z"),
+                Instant.parse("2026-10-06T01:00:00Z"),
+            ),
+            HistorySessionItem(
+                "ends-at-midnight",
+                "走路",
+                Instant.parse("2026-10-10T23:00:00Z"),
+                Instant.parse("2026-10-11T00:00:00Z"),
+            ),
+        )
+
+        val cells = buildHistoryActivityCells(
+            sessions,
+            LocalDate.parse("2026-10-18"),
+            ZoneId.of("UTC"),
+            DayOfWeek.MONDAY,
+        )
+        val sundayFirstCells = buildHistoryActivityCells(
+            sessions,
+            LocalDate.parse("2026-10-18"),
+            ZoneId.of("UTC"),
+            DayOfWeek.SUNDAY,
+        )
+
+        assertEquals(LocalDate.parse("2025-11-01"), cells.first().date)
+        assertEquals(LocalDate.parse("2026-10-18"), cells.last().date)
+        assertEquals(HistoryActivityCell(LocalDate.parse("2025-11-01"), 0, 5, 0), cells.first())
+        assertEquals(HistoryActivityCell(LocalDate.parse("2026-10-01"), 48, 3, 1), cells.first { it.date == LocalDate.parse("2026-10-01") })
+        assertEquals(HistoryActivityCell(LocalDate.parse("2026-10-05"), 49, 0, 1), cells.first { it.date == LocalDate.parse("2026-10-05") })
+        assertEquals(1, cells.first { it.date == LocalDate.parse("2026-10-06") }.recordCount)
+        assertEquals(1, cells.first { it.date == LocalDate.parse("2026-10-10") }.recordCount)
+        assertEquals(0, cells.first { it.date == LocalDate.parse("2026-10-11") }.recordCount)
+        assertEquals(HistoryActivityCell(LocalDate.parse("2026-10-01"), 48, 4, 1), sundayFirstCells.first { it.date == LocalDate.parse("2026-10-01") })
+        assertEquals(HistoryActivityCell(LocalDate.parse("2026-10-04"), 49, 0, 0), sundayFirstCells.first { it.date == LocalDate.parse("2026-10-04") })
+        val finalWeekIndex = sundayFirstCells.last().weekIndex
+        assertEquals(0, sundayFirstCells.last().dayOfWeekIndex)
+        assertEquals(listOf(sundayFirstCells.last()), sundayFirstCells.filter { it.weekIndex == finalWeekIndex })
+    }
+
+    @Test
+    fun historyActivityCellsUseStatisticsZoneAtLocalMidnight() {
+        val cells = buildHistoryActivityCells(
+            listOf(
+                HistorySessionItem(
+                    "local-midnight",
+                    "走路",
+                    Instant.parse("2026-09-30T15:30:00Z"),
+                    Instant.parse("2026-09-30T16:30:00Z"),
+                ),
+            ),
+            LocalDate.parse("2026-10-18"),
+            ZoneId.of("Asia/Shanghai"),
+            DayOfWeek.MONDAY,
+        )
+
+        assertEquals(1, cells.first { it.date == LocalDate.parse("2026-09-30") }.recordCount)
+        assertEquals(1, cells.first { it.date == LocalDate.parse("2026-10-01") }.recordCount)
+        assertEquals(0, cells.first { it.date == LocalDate.parse("2026-10-02") }.recordCount)
+    }
+
+    @Test
     fun emptyWeekAndMonthHaveNoChartData() {
         for (range in listOf(StatisticsRange.WEEK, StatisticsRange.MONTH)) {
             val summary = buildPeriodSummary(emptyList(), emptyList(), range, LocalDate.parse("2026-10-02"), ZoneId.of("UTC"), now)

@@ -8,6 +8,8 @@ import java.time.Duration
 import java.time.Instant
 import java.time.LocalDate
 import java.time.DayOfWeek
+import java.time.YearMonth
+import java.time.temporal.ChronoUnit
 import com.y3lc.timelogger.domain.time.StatisticsCalculator
 import com.y3lc.timelogger.domain.time.StatisticsPeriod
 import com.y3lc.timelogger.domain.time.UtcInterval
@@ -52,6 +54,13 @@ data class ActivityTypeDailyDetail(
 data class TypeDailyBar(val date: LocalDate, val duration: Duration)
 
 data class HistorySessionItem(val id: String, val name: String, val startedAtUtc: Instant, val endedAtUtc: Instant)
+
+data class HistoryActivityCell(
+    val date: LocalDate,
+    val weekIndex: Int,
+    val dayOfWeekIndex: Int,
+    val recordCount: Int,
+)
 
 data class SessionTimeEdit(val id: String, val startedAtUtc: Instant, val endedAtUtc: Instant)
 
@@ -181,6 +190,35 @@ fun buildTodaySummary(
 
 fun filterTimelineByActivityType(timeline: List<TimelineItem>, activityTypeId: String): List<TimelineItem> =
     timeline.filter { it.activityTypeId == activityTypeId }
+
+fun buildHistoryActivityCells(
+    sessions: List<HistorySessionItem>,
+    today: LocalDate,
+    zoneId: ZoneId,
+    firstDayOfWeek: DayOfWeek,
+): List<HistoryActivityCell> {
+    val firstDate = YearMonth.from(today).minusMonths(11).atDay(1)
+    val firstWeekDate = firstDate.minusDays(((firstDate.dayOfWeek.value - firstDayOfWeek.value + 7) % 7).toLong())
+    val rangeStart = firstDate.atStartOfDay(zoneId).toInstant()
+    val rangeEndExclusive = today.plusDays(1).atStartOfDay(zoneId).toInstant()
+    val visibleSessions = sessions.filter { session ->
+        session.startedAtUtc < rangeEndExclusive && session.endedAtUtc > rangeStart
+    }
+    return generateSequence(firstDate) { date -> date.plusDays(1) }
+        .takeWhile { date -> !date.isAfter(today) }
+        .map { date ->
+            val dayInterval = StatisticsPeriod.day(date, zoneId).interval
+            val recordCount = visibleSessions.count { session ->
+                session.startedAtUtc < dayInterval.endExclusive && session.endedAtUtc > dayInterval.start
+            }
+            HistoryActivityCell(
+                date = date,
+                weekIndex = (ChronoUnit.DAYS.between(firstWeekDate, date) / 7).toInt(),
+                dayOfWeekIndex = (date.dayOfWeek.value - firstDayOfWeek.value + 7) % 7,
+                recordCount = recordCount,
+            )
+        }.toList()
+}
 
 fun buildActivityTypeDailyDetails(
     timeline: List<TimelineItem>,

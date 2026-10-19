@@ -64,11 +64,7 @@ import java.time.format.DateTimeFormatter
 import android.app.DatePickerDialog
 
 @Composable
-fun RecordScreen(state: TimeLoggerUiState, onToggle: (String) -> Unit, onSessionSaved: (SessionTimeEdit, (String?) -> Unit) -> Unit, modifier: Modifier = Modifier) {
-    var historyVisible by rememberSaveable { mutableStateOf(false) }
-    if (historyVisible) {
-        HistoryDialog(state, onSessionSaved) { historyVisible = false }
-    }
+fun RecordScreen(state: TimeLoggerUiState, onToggle: (String) -> Unit, onHistoryOpen: () -> Unit, modifier: Modifier = Modifier) {
     BoxWithConstraints(modifier) {
         val columnCount = ((maxWidth.value + 12f) / 168f).toInt().coerceAtLeast(2)
         LazyVerticalGrid(
@@ -86,7 +82,7 @@ fun RecordScreen(state: TimeLoggerUiState, onToggle: (String) -> Unit, onSession
                         Text("统计时区 ${state.statisticsZoneId.id}", style = MaterialTheme.typography.bodySmall)
                     }
                     IconButton(
-                        onClick = { historyVisible = true },
+                        onClick = onHistoryOpen,
                         enabled = !state.isSaving && state.errorMessage == null,
                         modifier = Modifier.size(48.dp).testTag("history-open"),
                     ) {
