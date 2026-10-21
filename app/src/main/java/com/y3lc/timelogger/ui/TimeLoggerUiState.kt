@@ -9,7 +9,6 @@ import java.time.Instant
 import java.time.LocalDate
 import java.time.DayOfWeek
 import java.time.YearMonth
-import java.time.temporal.ChronoUnit
 import com.y3lc.timelogger.domain.time.StatisticsCalculator
 import com.y3lc.timelogger.domain.time.StatisticsPeriod
 import com.y3lc.timelogger.domain.time.UtcInterval
@@ -191,33 +190,29 @@ fun buildTodaySummary(
 fun filterTimelineByActivityType(timeline: List<TimelineItem>, activityTypeId: String): List<TimelineItem> =
     timeline.filter { it.activityTypeId == activityTypeId }
 
-fun buildHistoryActivityCells(
+fun buildHistoryMonthActivityCells(
     sessions: List<HistorySessionItem>,
-    today: LocalDate,
+    month: YearMonth,
     zoneId: ZoneId,
     firstDayOfWeek: DayOfWeek,
 ): List<HistoryActivityCell> {
-    val firstDate = YearMonth.from(today).minusMonths(11).atDay(1)
-    val firstWeekDate = firstDate.minusDays(((firstDate.dayOfWeek.value - firstDayOfWeek.value + 7) % 7).toLong())
-    val rangeStart = firstDate.atStartOfDay(zoneId).toInstant()
-    val rangeEndExclusive = today.plusDays(1).atStartOfDay(zoneId).toInstant()
+    val monthInterval = StatisticsPeriod.month(month.atDay(1), zoneId).interval
     val visibleSessions = sessions.filter { session ->
-        session.startedAtUtc < rangeEndExclusive && session.endedAtUtc > rangeStart
+        session.startedAtUtc < monthInterval.endExclusive && session.endedAtUtc > monthInterval.start
     }
-    return generateSequence(firstDate) { date -> date.plusDays(1) }
-        .takeWhile { date -> !date.isAfter(today) }
-        .map { date ->
-            val dayInterval = StatisticsPeriod.day(date, zoneId).interval
-            val recordCount = visibleSessions.count { session ->
+    val firstDayOffset = (month.atDay(1).dayOfWeek.value - firstDayOfWeek.value + 7) % 7
+    return (1..month.lengthOfMonth()).map { dayOfMonth ->
+        val date = month.atDay(dayOfMonth)
+        val dayInterval = StatisticsPeriod.day(date, zoneId).interval
+        HistoryActivityCell(
+            date = date,
+            weekIndex = (firstDayOffset + dayOfMonth - 1) / 7,
+            dayOfWeekIndex = (date.dayOfWeek.value - firstDayOfWeek.value + 7) % 7,
+            recordCount = visibleSessions.count { session ->
                 session.startedAtUtc < dayInterval.endExclusive && session.endedAtUtc > dayInterval.start
-            }
-            HistoryActivityCell(
-                date = date,
-                weekIndex = (ChronoUnit.DAYS.between(firstWeekDate, date) / 7).toInt(),
-                dayOfWeekIndex = (date.dayOfWeek.value - firstDayOfWeek.value + 7) % 7,
-                recordCount = recordCount,
-            )
-        }.toList()
+            },
+        )
+    }
 }
 
 fun buildActivityTypeDailyDetails(

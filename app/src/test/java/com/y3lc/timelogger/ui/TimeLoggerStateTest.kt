@@ -7,6 +7,7 @@ import java.time.Instant
 import java.time.Duration
 import java.time.DayOfWeek
 import java.time.LocalDate
+import java.time.YearMonth
 import java.time.ZoneId
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -372,7 +373,7 @@ class TimeLoggerStateTest {
     }
 
     @Test
-    fun historyActivityCellsFollowContinuousWeeksAndLocalDayOverlap() {
+    fun historyMonthActivityCellsFollowLocalDayOverlapAndWeekStart() {
         val sessions = listOf(
             HistorySessionItem(
                 "cross-month",
@@ -394,53 +395,78 @@ class TimeLoggerStateTest {
             ),
         )
 
-        val cells = buildHistoryActivityCells(
+        val cells = buildHistoryMonthActivityCells(
             sessions,
-            LocalDate.parse("2026-10-18"),
+            YearMonth.of(2026, 10),
             ZoneId.of("UTC"),
             DayOfWeek.MONDAY,
         )
-        val sundayFirstCells = buildHistoryActivityCells(
+        val sundayFirstCells = buildHistoryMonthActivityCells(
             sessions,
-            LocalDate.parse("2026-10-18"),
+            YearMonth.of(2026, 10),
             ZoneId.of("UTC"),
             DayOfWeek.SUNDAY,
         )
 
-        assertEquals(LocalDate.parse("2025-11-01"), cells.first().date)
-        assertEquals(LocalDate.parse("2026-10-18"), cells.last().date)
-        assertEquals(HistoryActivityCell(LocalDate.parse("2025-11-01"), 0, 5, 0), cells.first())
-        assertEquals(HistoryActivityCell(LocalDate.parse("2026-10-01"), 48, 3, 1), cells.first { it.date == LocalDate.parse("2026-10-01") })
-        assertEquals(HistoryActivityCell(LocalDate.parse("2026-10-05"), 49, 0, 1), cells.first { it.date == LocalDate.parse("2026-10-05") })
+        assertEquals(31, cells.size)
+        assertEquals(HistoryActivityCell(LocalDate.parse("2026-10-01"), 0, 3, 1), cells.first())
+        assertEquals(HistoryActivityCell(LocalDate.parse("2026-10-05"), 1, 0, 1), cells.first { it.date == LocalDate.parse("2026-10-05") })
         assertEquals(1, cells.first { it.date == LocalDate.parse("2026-10-06") }.recordCount)
         assertEquals(1, cells.first { it.date == LocalDate.parse("2026-10-10") }.recordCount)
         assertEquals(0, cells.first { it.date == LocalDate.parse("2026-10-11") }.recordCount)
-        assertEquals(HistoryActivityCell(LocalDate.parse("2026-10-01"), 48, 4, 1), sundayFirstCells.first { it.date == LocalDate.parse("2026-10-01") })
-        assertEquals(HistoryActivityCell(LocalDate.parse("2026-10-04"), 49, 0, 0), sundayFirstCells.first { it.date == LocalDate.parse("2026-10-04") })
+        assertEquals(HistoryActivityCell(LocalDate.parse("2026-10-01"), 0, 4, 1), sundayFirstCells.first())
+        assertEquals(HistoryActivityCell(LocalDate.parse("2026-10-04"), 1, 0, 0), sundayFirstCells.first { it.date == LocalDate.parse("2026-10-04") })
         val finalWeekIndex = sundayFirstCells.last().weekIndex
-        assertEquals(0, sundayFirstCells.last().dayOfWeekIndex)
-        assertEquals(listOf(sundayFirstCells.last()), sundayFirstCells.filter { it.weekIndex == finalWeekIndex })
+        assertEquals(6, sundayFirstCells.last().dayOfWeekIndex)
+        assertEquals(7, sundayFirstCells.count { it.weekIndex == finalWeekIndex })
     }
 
     @Test
-    fun historyActivityCellsUseStatisticsZoneAtLocalMidnight() {
-        val cells = buildHistoryActivityCells(
-            listOf(
-                HistorySessionItem(
-                    "local-midnight",
-                    "走路",
-                    Instant.parse("2026-09-30T15:30:00Z"),
-                    Instant.parse("2026-09-30T16:30:00Z"),
-                ),
-            ),
-            LocalDate.parse("2026-10-18"),
-            ZoneId.of("Asia/Shanghai"),
-            DayOfWeek.MONDAY,
+    fun historyMonthActivityCellsUseStatisticsZoneAtLocalMidnight() {
+        val sessions = listOf(HistorySessionItem(
+            "local-midnight", "走路",
+            Instant.parse("2026-09-30T15:30:00Z"),
+            Instant.parse("2026-09-30T16:30:00Z"),
+        ))
+        val zone = ZoneId.of("Asia/Shanghai")
+        val september = buildHistoryMonthActivityCells(sessions, YearMonth.of(2026, 9), zone, DayOfWeek.MONDAY)
+        val october = buildHistoryMonthActivityCells(sessions, YearMonth.of(2026, 10), zone, DayOfWeek.MONDAY)
+
+        assertEquals(1, september.last().recordCount)
+        assertEquals(1, october.first().recordCount)
+        assertEquals(0, october[1].recordCount)
+    }
+
+    @Test
+    fun selectedHistoryDayUsesLocalHalfOpenIntervalAcrossDst() {
+        val sessions = listOf(
+            HistorySessionItem("prior-cross", "跨日前", Instant.parse("2026-03-01T04:30:00Z"), Instant.parse("2026-03-01T05:30:00Z")),
+            HistorySessionItem("ends-at-start", "边界前", Instant.parse("2026-03-08T04:00:00Z"), Instant.parse("2026-03-08T05:00:00Z")),
+            HistorySessionItem("dst-cross", "跨夏令时", Instant.parse("2026-03-08T06:30:00Z"), Instant.parse("2026-03-08T08:30:00Z")),
+            HistorySessionItem("starts-at-end", "边界后", Instant.parse("2026-03-09T04:00:00Z"), Instant.parse("2026-03-09T05:00:00Z")),
+            HistorySessionItem("same-day", "同日", Instant.parse("2026-03-08T12:00:00Z"), Instant.parse("2026-03-08T13:00:00Z")),
+        )
+        val zone = ZoneId.of("America/New_York")
+
+        assertEquals(listOf("dst-cross", "same-day"), getSessionsOverlappingDay(sessions, LocalDate.parse("2026-03-08"), zone).map { it.id })
+        assertEquals(listOf("prior-cross"), getSessionsOverlappingDay(sessions, LocalDate.parse("2026-02-28"), zone).map { it.id })
+    }
+
+    @Test
+    fun monthActivityCellsCoverOnlySelectedMonthWithLocalHalfOpenDays() {
+        val sessions = listOf(
+            HistorySessionItem("cross-start", "走路", Instant.parse("2026-03-01T04:30:00Z"), Instant.parse("2026-03-01T05:30:00Z")),
+            HistorySessionItem("ends-at-midnight", "睡觉", Instant.parse("2026-03-02T04:00:00Z"), Instant.parse("2026-03-02T05:00:00Z")),
+            HistorySessionItem("dst-day", "走路", Instant.parse("2026-03-08T06:30:00Z"), Instant.parse("2026-03-08T08:30:00Z")),
         )
 
-        assertEquals(1, cells.first { it.date == LocalDate.parse("2026-09-30") }.recordCount)
-        assertEquals(1, cells.first { it.date == LocalDate.parse("2026-10-01") }.recordCount)
-        assertEquals(0, cells.first { it.date == LocalDate.parse("2026-10-02") }.recordCount)
+        val cells = buildHistoryMonthActivityCells(sessions, YearMonth.of(2026, 3), ZoneId.of("America/New_York"), DayOfWeek.SUNDAY)
+
+        assertEquals(31, cells.size)
+        assertEquals(HistoryActivityCell(LocalDate.parse("2026-03-01"), 0, 0, 2), cells.first())
+        assertEquals(0, cells.first { it.date == LocalDate.parse("2026-03-02") }.recordCount)
+        assertEquals(HistoryActivityCell(LocalDate.parse("2026-03-08"), 1, 0, 1), cells.first { it.date == LocalDate.parse("2026-03-08") })
+        assertEquals(LocalDate.parse("2026-03-31"), cells.last().date)
     }
 
     @Test

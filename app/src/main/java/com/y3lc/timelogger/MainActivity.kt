@@ -4,7 +4,6 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.compose.setContent
-import androidx.activity.compose.BackHandler
 import androidx.activity.viewModels
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.padding
@@ -18,9 +17,6 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -36,7 +32,6 @@ import com.y3lc.timelogger.ui.TimeLoggerUiState
 import com.y3lc.timelogger.ui.TimeLoggerViewModel
 import com.y3lc.timelogger.ui.TypeSaveResult
 import com.y3lc.timelogger.ui.RecordScreen
-import com.y3lc.timelogger.ui.HistoryScreen
 import com.y3lc.timelogger.ui.StatisticsScreen
 import com.y3lc.timelogger.ui.StatisticsRange
 import com.y3lc.timelogger.ui.SettingsScreen
@@ -105,11 +100,9 @@ private fun TimeLoggerApp(
     onSessionSaved: (SessionTimeEdit, (String?) -> Unit) -> Unit,
     onSessionDeleted: (String) -> Unit,
 ) {
-    var historyVisible by rememberSaveable { mutableStateOf(false) }
-    BackHandler(enabled = historyVisible) { historyVisible = false }
     Scaffold(
         bottomBar = {
-            if (!historyVisible) NavigationBar {
+            NavigationBar {
                 MainTab.entries.forEach { tab ->
                     NavigationBarItem(
                         selected = uiState.selectedTab == tab,
@@ -124,7 +117,7 @@ private fun TimeLoggerApp(
             }
         },
     ) { padding ->
-        MainScreen(uiState, padding, historyVisible, { historyVisible = true }, { historyVisible = false }, onToggle, onRangeSelected, onAnchorDateSelected, onRetry, onZoneSaved, onWeekStartChanged, onTypeCreated, onTypeUpdated, onTypeMoved, onTypeArchived, onSessionSaved, onSessionDeleted)
+        MainScreen(uiState, padding, onToggle, onRangeSelected, onAnchorDateSelected, onRetry, onZoneSaved, onWeekStartChanged, onTypeCreated, onTypeUpdated, onTypeMoved, onTypeArchived, onSessionSaved, onSessionDeleted)
     }
 }
 
@@ -138,9 +131,6 @@ private fun tabIcon(tab: MainTab): Int = when (tab) {
 private fun MainScreen(
     uiState: TimeLoggerUiState,
     padding: PaddingValues,
-    historyVisible: Boolean,
-    onHistoryOpen: () -> Unit,
-    onHistoryBack: () -> Unit,
     onToggle: (String) -> Unit,
     onRangeSelected: (StatisticsRange) -> Unit,
     onAnchorDateSelected: (java.time.LocalDate) -> Unit,
@@ -163,23 +153,19 @@ private fun MainScreen(
             TextButton(onClick = onRetry, enabled = !uiState.isSaving, modifier = Modifier.testTag("retry")) { Text("重试") }
         }
         if (!uiState.isLoading) {
-            if (historyVisible) {
-                HistoryScreen(uiState, onSessionSaved, onHistoryBack, Modifier.weight(1f))
-            } else {
-                when (uiState.selectedTab) {
-                    MainTab.RECORD -> RecordScreen(uiState, onToggle, onHistoryOpen, Modifier.weight(1f).padding(top = 16.dp))
-                    MainTab.STATISTICS -> StatisticsScreen(uiState, onRangeSelected, onAnchorDateSelected, onSessionDeleted, Modifier.weight(1f).padding(top = 16.dp))
-                    MainTab.SETTINGS -> SettingsScreen(
-                        uiState,
-                        onZoneSaved,
-                        onWeekStartChanged,
-                        onTypeCreated,
-                        onTypeUpdated,
-                        onTypeMoved,
-                        onTypeArchived,
-                        Modifier.weight(1f).padding(top = 16.dp),
-                    )
-                }
+            when (uiState.selectedTab) {
+                MainTab.RECORD -> RecordScreen(uiState, onToggle, Modifier.weight(1f).padding(top = 16.dp))
+                MainTab.STATISTICS -> StatisticsScreen(uiState, onRangeSelected, onAnchorDateSelected, onSessionSaved, onSessionDeleted, Modifier.weight(1f).padding(top = 16.dp))
+                MainTab.SETTINGS -> SettingsScreen(
+                    uiState,
+                    onZoneSaved,
+                    onWeekStartChanged,
+                    onTypeCreated,
+                    onTypeUpdated,
+                    onTypeMoved,
+                    onTypeArchived,
+                    Modifier.weight(1f).padding(top = 16.dp),
+                )
             }
         }
     }

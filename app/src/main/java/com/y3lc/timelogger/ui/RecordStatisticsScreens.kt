@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -52,19 +53,18 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
-import com.y3lc.timelogger.R
 import java.time.Duration
 import java.time.Instant
 import java.time.ZoneId
+import java.time.YearMonth
 import java.time.format.DateTimeFormatter
 import android.app.DatePickerDialog
 
 @Composable
-fun RecordScreen(state: TimeLoggerUiState, onToggle: (String) -> Unit, onHistoryOpen: () -> Unit, modifier: Modifier = Modifier) {
+fun RecordScreen(state: TimeLoggerUiState, onToggle: (String) -> Unit, modifier: Modifier = Modifier) {
     BoxWithConstraints(modifier) {
         val columnCount = ((maxWidth.value + 12f) / 168f).toInt().coerceAtLeast(2)
         LazyVerticalGrid(
@@ -80,13 +80,6 @@ fun RecordScreen(state: TimeLoggerUiState, onToggle: (String) -> Unit, onHistory
                         Text("今天", style = MaterialTheme.typography.headlineSmall)
                         Text(state.today.dateLabel, style = MaterialTheme.typography.bodyMedium)
                         Text("统计时区 ${state.statisticsZoneId.id}", style = MaterialTheme.typography.bodySmall)
-                    }
-                    IconButton(
-                        onClick = onHistoryOpen,
-                        enabled = !state.isSaving && state.errorMessage == null,
-                        modifier = Modifier.size(48.dp).testTag("history-open"),
-                    ) {
-                Icon(painterResource(R.drawable.ic_tab_record), contentDescription = "查看历史记录")
                     }
                 }
             }
@@ -132,10 +125,17 @@ fun StatisticsScreen(
     state: TimeLoggerUiState,
     onRangeSelected: (StatisticsRange) -> Unit,
     onAnchorDateSelected: (java.time.LocalDate) -> Unit,
+    onSessionSaved: (SessionTimeEdit, (String?) -> Unit) -> Unit,
     onSessionDeleted: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var selectedTypeId by rememberSaveable { mutableStateOf<String?>(null) }
+    var editingHistoryId by rememberSaveable { mutableStateOf<String?>(null) }
+    var editingHistoryZone by rememberSaveable { mutableStateOf(state.statisticsZoneId.id) }
+    val month = YearMonth.from(state.statisticsAnchorDate ?: java.time.LocalDate.now(state.statisticsZoneId))
+    var selectedHistoryDate by rememberSaveable(month.toString()) { mutableStateOf<String?>(null) }
+    val selectedDate = selectedHistoryDate?.let(java.time.LocalDate::parse)
+    val daySessions = selectedDate?.let { getSessionsOverlappingDay(state.historySessions, it, state.statisticsZoneId) }.orEmpty()
     val selectedType = state.statistics.ranking.firstOrNull { it.typeId == selectedTypeId }
     if (selectedType != null) {
         TypeStatisticsPage(selectedType, state.statisticsByRange, state.statisticsRange, state.statisticsAnchorDate, state.statisticsZoneId, onAnchorDateSelected, onSessionDeleted, {
@@ -163,6 +163,18 @@ fun StatisticsScreen(
                 }
                 StatisticsPeriodNavigator(state.statisticsRange, state.statisticsAnchorDate, state.statistics, state.statisticsZoneId, onAnchorDateSelected)
                 Text("统计时区 ${state.statisticsZoneId.id}", style = MaterialTheme.typography.bodySmall)
+            }
+        }
+        if (state.statisticsRange == StatisticsRange.MONTH) {
+            item { StatisticsMonthHistory(state, onAnchorDateSelected, selectedDate) { selectedHistoryDate = it.toString() } }
+            if (selectedDate != null && daySessions.isNotEmpty()) item {
+                Text("${selectedDate.monthValue}月${selectedDate.dayOfMonth}日 · ${daySessions.size} 条记录", modifier = Modifier.testTag("history-day-details"), style = MaterialTheme.typography.titleMedium)
+            }
+            itemsIndexed(daySessions, key = { _, session -> "history-${session.id}" }) { index, session ->
+                HistoryRecordRow(session, index, state.statisticsZoneId, !state.isSaving) {
+                    editingHistoryZone = state.statisticsZoneId.id
+                    editingHistoryId = session.id
+                }
             }
         }
         if (state.statistics.ranking.isEmpty()) {
@@ -204,6 +216,11 @@ fun StatisticsScreen(
                     }
                 }
             }
+        }
+    }
+    state.historySessions.firstOrNull { it.id == editingHistoryId }?.let { session ->
+        SessionEditor(session, ZoneId.of(editingHistoryZone), state.isSaving, onSessionSaved) {
+            editingHistoryId = null
         }
     }
 }

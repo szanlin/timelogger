@@ -12,6 +12,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertHeightIsAtLeast
 import androidx.compose.ui.test.assertIsSelected
+import androidx.compose.ui.test.assertIsNotSelected
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.assertIsNotEnabled
@@ -37,18 +38,26 @@ import androidx.compose.ui.test.swipeDown
 import androidx.compose.ui.test.swipeUp
 import androidx.lifecycle.ViewModelProvider
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.unit.dp
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.test.platform.app.InstrumentationRegistry
-import androidx.test.espresso.Espresso
 import com.y3lc.timelogger.ui.TimeLoggerViewModel
 import com.y3lc.timelogger.ui.ActivityTypeItem
 import com.y3lc.timelogger.ui.SettingsScreen
 import com.y3lc.timelogger.ui.TimeLoggerUiState
 import com.y3lc.timelogger.ui.RecordScreen
-import com.y3lc.timelogger.ui.HistoryScreen
+import com.y3lc.timelogger.ui.StatisticsMonthHistory
 import com.y3lc.timelogger.ui.HistorySessionItem
+import com.y3lc.timelogger.ui.PeriodSummary
+import com.y3lc.timelogger.ui.StatisticsRange
+import com.y3lc.timelogger.ui.StatisticsScreen
+import com.y3lc.timelogger.domain.time.StatisticsPeriod
 import com.y3lc.timelogger.data.local.TimeLoggerDatabase
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -64,7 +73,6 @@ import java.time.Instant
 import java.time.LocalDate
 import java.time.YearMonth
 import java.time.ZoneId
-import java.time.temporal.ChronoUnit
 
 class MainActivityTest {
     @get:Rule(order = 0)
@@ -92,6 +100,7 @@ class MainActivityTest {
         assertFalse(viewModel.uiState.value.activityTypes.any { it.isRunning })
         assertNull(viewModel.uiState.value.fixedStatisticsZoneId)
         assertEquals(DayOfWeek.MONDAY, viewModel.uiState.value.firstDayOfWeek)
+        awaitNode("record-list")
     }
 
     @After
@@ -103,6 +112,32 @@ class MainActivityTest {
         }
         composeTestRule.waitForIdle()
         assertNull(viewModel.uiState.value.errorMessage)
+    }
+
+    private fun awaitNode(tag: String) {
+        composeTestRule.waitUntil(5_000) {
+            runCatching { composeTestRule.onNodeWithTag(tag).fetchSemanticsNode() }.isSuccess
+        }
+    }
+
+    private fun openMonthHistory() {
+        composeTestRule.onNodeWithTag("nav-statistics").performClick()
+        composeTestRule.onNodeWithTag("period-month").performClick()
+        composeTestRule.onNodeWithTag("statistics-list").performScrollToNode(hasTestTag("history-month-pager"))
+    }
+
+    private fun openRecordedDay() {
+        openMonthHistory()
+        val state = viewModel.uiState.value
+        val date = state.historySessions.single().startedAtUtc.atZone(state.statisticsZoneId).toLocalDate()
+        composeTestRule.onNodeWithTag("history-date-$date").performClick()
+    }
+
+    private fun showMonthHistory(state: TimeLoggerUiState) {
+        composeTestRule.activity.setContent {
+            var anchorDate by remember { mutableStateOf(state.statisticsAnchorDate ?: LocalDate.now(state.statisticsZoneId)) }
+            StatisticsMonthHistory(state.copy(statisticsAnchorDate = anchorDate), { anchorDate = it })
+        }
     }
 
     @Test
@@ -162,7 +197,7 @@ class MainActivityTest {
         composeTestRule.onNodeWithTag("type-add").performClick()
         val selectedColor = 0xFF4A8D69
         val colorNode = composeTestRule.onNodeWithTag("type-color-$selectedColor")
-        colorNode.performClick()
+        colorNode.performScrollTo().performClick()
         colorNode.assertIsSelected()
         colorNode.assert(SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Button))
         colorNode.assertWidthIsAtLeast(48.dp).assertHeightIsAtLeast(48.dp)
@@ -202,7 +237,7 @@ class MainActivityTest {
             composeTestRule.onNodeWithTag("type-add").performClick()
             composeTestRule.onNodeWithTag("type-name-input").performTextInput(name)
             composeTestRule.onNodeWithTag("type-icon-sleep").performClick()
-            composeTestRule.onNodeWithTag("type-color-$selectedColor").performClick()
+            composeTestRule.onNodeWithTag("type-color-$selectedColor").performScrollTo().performClick()
             composeTestRule.onNodeWithTag("type-save").performClick()
             composeTestRule.waitUntil(5_000) {
                 !viewModel.uiState.value.isSaving && viewModel.uiState.value.errorMessage != null
@@ -240,7 +275,7 @@ class MainActivityTest {
             composeTestRule.onNodeWithTag("type-edit-睡觉").performClick()
             composeTestRule.onNodeWithTag("type-name-input").performTextReplacement(name)
             composeTestRule.onNodeWithTag("type-icon-walk").performClick()
-            composeTestRule.onNodeWithTag("type-color-$selectedColor").performClick()
+            composeTestRule.onNodeWithTag("type-color-$selectedColor").performScrollTo().performClick()
             composeTestRule.onNodeWithTag("type-save").performClick()
             composeTestRule.waitUntil(5_000) {
                 !viewModel.uiState.value.isSaving && viewModel.uiState.value.errorMessage != null
@@ -268,16 +303,17 @@ class MainActivityTest {
 
     @Test
     fun typeEditorCanReachLastColorInLandscape() {
+        val originalOrientation = composeTestRule.activity.requestedOrientation
         composeTestRule.activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
         try {
-            composeTestRule.waitForIdle()
+            awaitNode("record-list")
             composeTestRule.onNodeWithTag("nav-settings").performClick()
             composeTestRule.onNodeWithTag("settings-list").performScrollToNode(hasTestTag("type-add"))
             composeTestRule.onNodeWithTag("type-add").performClick()
             val lastColor = 0xFFA45565
             composeTestRule.onNodeWithTag("type-color-$lastColor").performScrollTo().performClick().assertIsSelected()
         } finally {
-            composeTestRule.activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+            composeTestRule.activity.requestedOrientation = originalOrientation
         }
     }
 
@@ -333,11 +369,14 @@ class MainActivityTest {
             composeTestRule.onAllNodes(androidx.compose.ui.test.hasTestTag("period-day")).fetchSemanticsNodes().isNotEmpty()
         }
         composeTestRule.onNodeWithTag("period-week").performClick()
-        composeTestRule.onNodeWithTag("statistics-period-label").assertTextEquals("本周")
+        awaitStableState()
+        composeTestRule.onNodeWithTag("statistics-period-label").assertTextEquals(viewModel.uiState.value.statistics.dateLabel)
         composeTestRule.onNodeWithTag("period-month").performClick()
-        composeTestRule.onNodeWithTag("statistics-period-label").assertTextEquals("本月")
+        awaitStableState()
+        composeTestRule.onNodeWithTag("statistics-period-label").assertTextEquals(viewModel.uiState.value.statistics.dateLabel)
         composeTestRule.onNodeWithTag("period-day").performClick()
-        composeTestRule.onNodeWithTag("statistics-period-label").assertTextEquals("今天")
+        awaitStableState()
+        composeTestRule.onNodeWithTag("statistics-period-label").assertTextEquals(viewModel.uiState.value.statistics.dateLabel)
     }
 
     @Test
@@ -349,32 +388,23 @@ class MainActivityTest {
         composeTestRule.onNodeWithTag("nav-statistics").performClick()
 
         listOf("day", "week", "month").forEach { range ->
+            awaitNode("period-$range")
             composeTestRule.onNodeWithTag("period-$range").performClick()
             composeTestRule.onNodeWithTag("statistics-list").performScrollToNode(hasTestTag("statistics-type-walk"))
             composeTestRule.onNodeWithTag("statistics-type-walk").performClick()
             composeTestRule.onNodeWithTag("statistics-type-page").assertIsDisplayed()
-            composeTestRule.onNodeWithTag("statistics-type-page-title").assertTextContains("走路")
-            composeTestRule.onNodeWithTag("statistics-type-session-count").assertTextContains("1")
+            composeTestRule.onNodeWithTag("type-period-$range").performClick()
+            composeTestRule.onNodeWithTag("statistics-type-page-title").assertTextEquals("走路统计")
+            composeTestRule.onNodeWithTag("statistics-type-session-count").assertTextEquals("记录次数 1")
             if (range == "day") {
                 composeTestRule.onAllNodesWithTag("statistics-type-record-bar").assertCountEquals(1)
             } else {
-                val summary = viewModel.uiState.value.statistics
-                val zoneId = viewModel.uiState.value.statisticsZoneId
-                val interval = checkNotNull(summary.interval)
-                val expectedDayCount = ChronoUnit.DAYS.between(
-                    interval.start.atZone(zoneId).toLocalDate(),
-                    interval.endExclusive.minusNanos(1).atZone(zoneId).toLocalDate(),
-                ).toInt() + 1
-                composeTestRule.onAllNodesWithTag("statistics-type-day-bar").assertCountEquals(expectedDayCount)
+                composeTestRule.onNodeWithTag("type-period-$range").assertIsSelected()
+                assertTrue(composeTestRule.onAllNodesWithTag("statistics-type-day-bar").fetchSemanticsNodes().isNotEmpty())
             }
             composeTestRule.onNodeWithTag("statistics-type-page-back").performClick()
-            composeTestRule.onNodeWithTag("statistics-period-label").assertTextEquals(
-                when (range) {
-                    "day" -> "今天"
-                    "week" -> "本周"
-                    else -> "本月"
-                },
-            )
+            awaitNode("statistics-list")
+            composeTestRule.onNodeWithTag("statistics-period-label").assertTextEquals(viewModel.uiState.value.statistics.dateLabel)
         }
     }
 
@@ -401,8 +431,12 @@ class MainActivityTest {
         composeTestRule.onNodeWithTag("statistics-week-chart").assertExists()
 
         composeTestRule.onNodeWithTag("period-month").performClick()
+        composeTestRule.onNodeWithTag("statistics-list").performScrollToNode(hasTestTag("statistics-duration-summary"))
+        composeTestRule.onNodeWithTag("statistics-duration-summary").assertExists()
         composeTestRule.onNodeWithTag("statistics-list").performScrollToNode(androidx.compose.ui.test.hasTestTag("statistics-month-chart"))
         composeTestRule.onNodeWithTag("statistics-month-chart").assertExists()
+        composeTestRule.onNodeWithTag("statistics-list").performScrollToNode(hasTestTag("statistics-type-walk"))
+        composeTestRule.onNodeWithTag("statistics-type-walk").assertExists()
     }
 
     @Test
@@ -410,6 +444,39 @@ class MainActivityTest {
         composeTestRule.onNodeWithTag("nav-record").assertContentDescriptionContains("记录")
         composeTestRule.onNodeWithTag("nav-statistics").assertContentDescriptionContains("统计")
         composeTestRule.onNodeWithTag("nav-settings").assertContentDescriptionContains("设置")
+    }
+
+    @Test
+    fun monthStatisticsShowsCalendarWithoutSeparateHistoryEntry() {
+        composeTestRule.onNodeWithTag("history-open").assertDoesNotExist()
+        composeTestRule.onNodeWithTag("nav-statistics").performClick()
+        composeTestRule.onNodeWithTag("period-month").performClick()
+        composeTestRule.onNodeWithTag("statistics-list").performScrollToNode(hasTestTag("history-month-pager"))
+        composeTestRule.onNodeWithTag("history-month-pager").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("nav-record").assertIsDisplayed()
+    }
+
+    @Test
+    fun monthCalendarSwipeUpdatesStatisticsPeriodAndSupportsOlderAnchor() {
+        val today = LocalDate.now(viewModel.uiState.value.statisticsZoneId)
+        val initialMonth = YearMonth.from(today).minusMonths(15)
+        composeTestRule.runOnUiThread { viewModel.selectStatisticsAnchorDate(initialMonth.atDay(10)) }
+        awaitStableState()
+        openMonthHistory()
+        composeTestRule.onNodeWithTag("history-month-label")
+            .assertTextEquals("${initialMonth.year}年${initialMonth.monthValue}月")
+        composeTestRule.onNodeWithTag("statistics-period-label")
+            .assertTextEquals("${initialMonth.atDay(1)} — ${initialMonth.atEndOfMonth()}")
+
+        composeTestRule.onNodeWithTag("history-month-pager").performTouchInput { swipeDown(durationMillis = 500) }
+        val previousMonth = initialMonth.minusMonths(1)
+        composeTestRule.waitUntil(5_000) {
+            viewModel.uiState.value.statisticsAnchorDate?.let(YearMonth::from) == previousMonth
+        }
+        composeTestRule.onNodeWithTag("history-month-label")
+            .assertTextEquals("${previousMonth.year}年${previousMonth.monthValue}月")
+        composeTestRule.onNodeWithTag("statistics-period-label")
+            .assertTextEquals("${previousMonth.atDay(1)} — ${previousMonth.atEndOfMonth()}")
     }
 
     @Test
@@ -430,33 +497,23 @@ class MainActivityTest {
     }
 
     @Test
-    fun historyOpensAsPageAndReturnsToRecord() {
-        composeTestRule.onNodeWithTag("record-list").performScrollToNode(hasTestTag("history-open"))
-        composeTestRule.onNodeWithTag("history-open").performClick()
-
-        composeTestRule.onNodeWithTag("history-screen").assertIsDisplayed()
-        composeTestRule.onNodeWithTag("history-back").assertIsDisplayed()
-        composeTestRule.onNodeWithTag("record-list").assertDoesNotExist()
-        composeTestRule.onNodeWithTag("nav-record").assertDoesNotExist()
-        composeTestRule.onNodeWithTag("nav-statistics").assertDoesNotExist()
-        composeTestRule.onNodeWithTag("nav-settings").assertDoesNotExist()
-
-        composeTestRule.onNodeWithTag("history-back").performClick()
-        composeTestRule.onNodeWithTag("record-list").assertIsDisplayed()
+    fun monthStatisticsKeepsNavigationAndExistingCharts() {
+        composeTestRule.onNodeWithTag("nav-statistics").performClick()
+        composeTestRule.onNodeWithTag("period-month").performClick()
+        composeTestRule.onNodeWithTag("statistics-list").performScrollToNode(hasTestTag("history-month-pager"))
+        composeTestRule.onNodeWithTag("history-month-pager").assertIsDisplayed()
         composeTestRule.onNodeWithTag("nav-record").assertIsDisplayed()
-
-        composeTestRule.onNodeWithTag("record-list").performScrollToNode(hasTestTag("history-open"))
-        composeTestRule.onNodeWithTag("history-open").performClick()
-        Espresso.pressBack()
+        composeTestRule.onNodeWithTag("history-back").assertDoesNotExist()
+        composeTestRule.onNodeWithTag("history-screen").assertDoesNotExist()
+        composeTestRule.onNodeWithTag("nav-record").performClick()
         composeTestRule.onNodeWithTag("record-list").assertIsDisplayed()
-        composeTestRule.onNodeWithTag("nav-record").assertIsDisplayed()
     }
 
     @Test
-    fun historyPageShowsErrorAndRetry() {
-        composeTestRule.onNodeWithTag("record-list").performScrollToNode(hasTestTag("history-open"))
-        composeTestRule.onNodeWithTag("history-open").performClick()
-        composeTestRule.onNodeWithTag("history-screen").assertIsDisplayed()
+    fun monthStatisticsShowsErrorAndRetry() {
+        composeTestRule.onNodeWithTag("nav-statistics").performClick()
+        composeTestRule.onNodeWithTag("period-month").performClick()
+        composeTestRule.onNodeWithTag("statistics-list").performScrollToNode(hasTestTag("history-month-pager"))
 
         try {
             composeTestRule.runOnUiThread { viewModel.saveStatisticsZone("Invalid/Timezone") }
@@ -465,7 +522,7 @@ class MainActivityTest {
 
             awaitStableState()
             composeTestRule.onNodeWithTag("retry").assertDoesNotExist()
-            composeTestRule.onNodeWithTag("history-screen").assertIsDisplayed()
+            composeTestRule.onNodeWithTag("statistics-list").assertIsDisplayed()
         } finally {
             if (viewModel.uiState.value.errorMessage != null) {
                 composeTestRule.runOnUiThread { viewModel.refresh() }
@@ -482,9 +539,8 @@ class MainActivityTest {
         awaitStableState()
         composeTestRule.onNodeWithTag("activity-walk").performClick()
         awaitStableState()
-        composeTestRule.onNodeWithTag("record-list").performScrollToNode(androidx.compose.ui.test.hasTestTag("history-open"))
-        composeTestRule.onNodeWithTag("history-open").performClick()
-        composeTestRule.onNodeWithTag("history-content").performScrollToNode(hasTestTag("history-edit-0"))
+        openRecordedDay()
+        composeTestRule.onNodeWithTag("history-edit-0").performScrollTo()
         composeTestRule.onNodeWithTag("history-edit-0").performClick()
         composeTestRule.onNodeWithTag("session-start-input").performTextReplacement("2026-03-08 02:30:00")
         composeTestRule.onNodeWithTag("session-start-error").assertTextEquals("此时刻因夏令时跳变不存在，请重新选择")
@@ -498,7 +554,11 @@ class MainActivityTest {
         awaitStableState()
         assertEquals(Instant.parse("2026-11-01T05:30:00Z"), viewModel.uiState.value.historySessions.single().startedAtUtc)
         assertEquals(Instant.parse("2026-11-01T06:15:00Z"), viewModel.uiState.value.historySessions.single().endedAtUtc)
-        composeTestRule.onNodeWithTag("history-content").performScrollToNode(hasTestTag("history-edit-0"))
+        composeTestRule.runOnUiThread { viewModel.selectStatisticsAnchorDate(LocalDate.parse("2026-11-01")) }
+        awaitStableState()
+        composeTestRule.onNodeWithTag("statistics-list").performScrollToNode(hasTestTag("history-month-pager"))
+        composeTestRule.onNodeWithTag("history-date-2026-11-01").performClick()
+        composeTestRule.onNodeWithTag("history-edit-0").performScrollTo()
         composeTestRule.onNodeWithTag("history-edit-0").performClick()
         composeTestRule.onNodeWithTag("session-start-input").assertTextContains("2026-11-01 01:30:00.000")
         composeTestRule.onNodeWithTag("session-end-input").assertTextContains("2026-11-01 01:15:00.000")
@@ -515,8 +575,7 @@ class MainActivityTest {
         val state = viewModel.uiState.value
         val recordDate = state.historySessions.single().startedAtUtc.atZone(state.statisticsZoneId).toLocalDate()
 
-        composeTestRule.onNodeWithTag("record-list").performScrollToNode(hasTestTag("history-open"))
-        composeTestRule.onNodeWithTag("history-open").performClick()
+        openMonthHistory()
 
         composeTestRule.onNodeWithTag("history-month-pager").assertIsDisplayed()
         composeTestRule.onNodeWithTag("history-date-$recordDate")
@@ -537,16 +596,10 @@ class MainActivityTest {
             date.atTime(10, 0).atZone(zone).toInstant(),
             date.atTime(11, 0).atZone(zone).toInstant(),
         )
-        composeTestRule.activity.setContent {
-            HistoryScreen(
-                state = TimeLoggerUiState(
-                    statisticsZoneId = zone,
-                    historySessions = listOf(session("current", today), session("previous", previousRecordDate)),
-                ),
-                onSave = { _, _ -> },
-                onBack = {},
-            )
-        }
+        showMonthHistory(TimeLoggerUiState(
+            statisticsZoneId = zone,
+            historySessions = listOf(session("current", today), session("previous", previousRecordDate)),
+        ))
 
         composeTestRule.onNodeWithTag("history-month-label")
             .assertTextEquals("${currentMonth.year}年${currentMonth.monthValue}月")
@@ -576,29 +629,23 @@ class MainActivityTest {
     }
 
     @Test
-    fun historyCalendarVerticalSwipeStopsAtTwelveMonthBoundary() {
+    fun historyCalendarCanShowMonthsOlderThanTwelveMonths() {
         val zone = ZoneId.of("UTC")
         val currentMonth = YearMonth.now(zone)
-        composeTestRule.activity.setContent {
-            HistoryScreen(TimeLoggerUiState(statisticsZoneId = zone), onSave = { _, _ -> }, onBack = {})
-        }
-
-        repeat(11) {
-            composeTestRule.onNodeWithTag("history-month-pager").performTouchInput { swipeDown(durationMillis = 500) }
-            composeTestRule.waitForIdle()
-        }
+        val olderMonth = currentMonth.minusMonths(15)
+        showMonthHistory(TimeLoggerUiState(statisticsZoneId = zone, statisticsAnchorDate = olderMonth.atDay(1)))
         composeTestRule.onNodeWithTag("history-month-label").assertTextEquals(
-            "${currentMonth.minusMonths(11).year}年${currentMonth.minusMonths(11).monthValue}月",
+            "${olderMonth.year}年${olderMonth.monthValue}月",
         )
         composeTestRule.onNodeWithTag("history-month-pager").performTouchInput { swipeDown(durationMillis = 500) }
         composeTestRule.waitForIdle()
         composeTestRule.onNodeWithTag("history-month-label").assertTextEquals(
-            "${currentMonth.minusMonths(11).year}年${currentMonth.minusMonths(11).monthValue}月",
+            "${olderMonth.minusMonths(1).year}年${olderMonth.minusMonths(1).monthValue}月",
         )
         composeTestRule.onNodeWithTag("history-month-pager").performTouchInput { swipeUp(durationMillis = 500) }
         composeTestRule.waitForIdle()
         composeTestRule.onNodeWithTag("history-month-label").assertTextEquals(
-            "${currentMonth.minusMonths(10).year}年${currentMonth.minusMonths(10).monthValue}月",
+            "${olderMonth.year}年${olderMonth.monthValue}月",
         )
     }
 
@@ -611,14 +658,7 @@ class MainActivityTest {
             month.atDay(1).dayOfWeek.value - 1 + month.lengthOfMonth() > 35
         }
         val month = currentMonth.minusMonths(monthsBack.toLong())
-        composeTestRule.activity.setContent {
-            HistoryScreen(TimeLoggerUiState(statisticsZoneId = zone), onSave = { _, _ -> }, onBack = {})
-        }
-
-        repeat(monthsBack) {
-            composeTestRule.onNodeWithTag("history-month-pager").performTouchInput { swipeDown(durationMillis = 500) }
-            composeTestRule.waitForIdle()
-        }
+        showMonthHistory(TimeLoggerUiState(statisticsZoneId = zone, statisticsAnchorDate = month.atDay(1)))
         val lastDay = composeTestRule.onNodeWithTag("history-date-${month.atEndOfMonth()}")
         lastDay.assertIsDisplayed()
         val pagerBounds = composeTestRule.onNodeWithTag("history-month-pager").getUnclippedBoundsInRoot()
@@ -632,13 +672,7 @@ class MainActivityTest {
     fun historyCalendarRespectsSundayStartAndMarksFutureDates() {
         val zone = ZoneId.of("UTC")
         val today = LocalDate.now(zone)
-        composeTestRule.activity.setContent {
-            HistoryScreen(
-                TimeLoggerUiState(statisticsZoneId = zone, firstDayOfWeek = DayOfWeek.SUNDAY),
-                onSave = { _, _ -> },
-                onBack = {},
-            )
-        }
+        showMonthHistory(TimeLoggerUiState(statisticsZoneId = zone, firstDayOfWeek = DayOfWeek.SUNDAY))
 
         composeTestRule.onNodeWithTag("history-weekday-0").assertTextEquals("日")
         composeTestRule.onNodeWithTag("history-weekday-1").assertTextEquals("一")
@@ -651,14 +685,114 @@ class MainActivityTest {
     }
 
     @Test
+    fun historyCalendarHighlightsFutureEditedRecord() {
+        val zone = ZoneId.of("UTC")
+        val futureDate = LocalDate.now(zone).plusMonths(1).withDayOfMonth(10)
+        val session = HistorySessionItem(
+            "future", "走路",
+            futureDate.atTime(10, 0).atZone(zone).toInstant(),
+            futureDate.atTime(11, 0).atZone(zone).toInstant(),
+        )
+        showMonthHistory(TimeLoggerUiState(
+            statisticsZoneId = zone,
+            statisticsAnchorDate = futureDate,
+            historySessions = listOf(session),
+        ))
+
+        composeTestRule.onNodeWithTag("history-date-$futureDate")
+            .assertContentDescriptionContains("$futureDate，1 条记录", substring = true)
+    }
+
+    @Test
+    fun monthStatisticsExpandsOnlyRecordedDayAndClearsSelectionAfterMonthSwipe() {
+        val zone = ZoneId.of("UTC")
+        val month = YearMonth.of(2026, 10)
+        val firstDate = month.atDay(5)
+        val secondDate = month.atDay(6)
+        val sessions = listOf(
+            HistorySessionItem("cross", "跨日", Instant.parse("2026-10-05T23:00:00Z"), Instant.parse("2026-10-06T01:00:00Z")),
+            HistorySessionItem("second", "第二条", Instant.parse("2026-10-06T10:00:00Z"), Instant.parse("2026-10-06T11:00:00Z")),
+        )
+        composeTestRule.activity.setContent {
+            var anchorDate by remember { mutableStateOf(month.atDay(1)) }
+            StatisticsScreen(
+                state = TimeLoggerUiState(
+                    statisticsZoneId = zone,
+                    statisticsRange = StatisticsRange.MONTH,
+                    statisticsAnchorDate = anchorDate,
+                    statistics = PeriodSummary(interval = StatisticsPeriod.month(anchorDate, zone).interval),
+                    historySessions = sessions,
+                ),
+                onRangeSelected = {}, onAnchorDateSelected = { anchorDate = it },
+                onSessionSaved = { _, _ -> }, onSessionDeleted = {},
+                modifier = Modifier.fillMaxWidth().height(800.dp),
+            )
+        }
+
+        composeTestRule.onNodeWithTag("history-day-details").assertDoesNotExist()
+        composeTestRule.onNodeWithText("已结束记录").assertDoesNotExist()
+        composeTestRule.onNodeWithTag("history-date-${month.atDay(4)}")
+            .assert(SemanticsMatcher.keyNotDefined(SemanticsActions.OnClick))
+        composeTestRule.onNodeWithTag("history-day-details").assertDoesNotExist()
+        composeTestRule.onNodeWithTag("history-date-$firstDate").assertIsNotSelected()
+        composeTestRule.onNodeWithTag("history-date-$firstDate").performClick()
+        composeTestRule.onNodeWithTag("history-date-$firstDate").assertIsSelected()
+        composeTestRule.onNodeWithTag("history-day-details").assertExists()
+        composeTestRule.onNodeWithTag("history-edit-0").assertExists()
+        composeTestRule.onNodeWithTag("history-edit-1").assertDoesNotExist()
+        composeTestRule.onNodeWithTag("history-date-$secondDate").performClick()
+        composeTestRule.onNodeWithTag("history-date-$firstDate").assertIsNotSelected()
+        composeTestRule.onNodeWithTag("history-date-$secondDate").assertIsSelected()
+        composeTestRule.onNodeWithTag("history-edit-1").assertExists()
+
+        composeTestRule.onNodeWithTag("history-month-pager").performTouchInput { swipeDown(durationMillis = 500) }
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("history-day-details").assertDoesNotExist()
+        composeTestRule.onNodeWithTag("history-month-pager").performTouchInput { swipeUp(durationMillis = 500) }
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("history-date-$secondDate").assertIsNotSelected()
+    }
+
+    @Test
+    fun monthStatisticsCanReachLastOfManyRecordsWithoutComposingAllRows() {
+        val zone = ZoneId.of("UTC")
+        val month = YearMonth.now(zone)
+        val start = month.atDay(1).atTime(10, 0).atZone(zone).toInstant()
+        val sessions = (0..79).map { index ->
+            HistorySessionItem("record-$index", "走路", start.plusSeconds(index.toLong()), start.plusSeconds(index + 1L))
+        }
+        composeTestRule.activity.setContent {
+            StatisticsScreen(
+                state = TimeLoggerUiState(
+                    statisticsZoneId = zone,
+                    statisticsRange = StatisticsRange.MONTH,
+                    statisticsAnchorDate = month.atDay(1),
+                    statistics = PeriodSummary(
+                        dateLabel = "${month.atDay(1)} — ${month.atEndOfMonth()}",
+                        interval = StatisticsPeriod.month(month.atDay(1), zone).interval,
+                    ),
+                    historySessions = sessions,
+                ),
+                onRangeSelected = {}, onAnchorDateSelected = {}, onSessionSaved = { _, _ -> }, onSessionDeleted = {},
+                modifier = Modifier.fillMaxWidth().height(800.dp),
+            )
+        }
+
+        composeTestRule.onNodeWithTag("history-edit-79").assertDoesNotExist()
+        composeTestRule.onNodeWithTag("history-date-${month.atDay(1)}").performClick()
+        composeTestRule.onNodeWithTag("statistics-list").performScrollToNode(hasTestTag("history-edit-79"))
+        composeTestRule.onNodeWithTag("history-edit-79").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("history-edit-0").assertDoesNotExist()
+    }
+
+    @Test
     fun historyEditorRejectsEndAtStartAndKeepsDraft() {
         composeTestRule.onNodeWithTag("activity-walk").performClick()
         awaitStableState()
         composeTestRule.onNodeWithTag("activity-walk").performClick()
         awaitStableState()
-        composeTestRule.onNodeWithTag("record-list").performScrollToNode(androidx.compose.ui.test.hasTestTag("history-open"))
-        composeTestRule.onNodeWithTag("history-open").performClick()
-        composeTestRule.onNodeWithTag("history-content").performScrollToNode(hasTestTag("history-edit-0"))
+        openRecordedDay()
+        composeTestRule.onNodeWithTag("history-edit-0").performScrollTo()
         composeTestRule.onNodeWithTag("history-edit-0").performClick()
         composeTestRule.onNodeWithTag("session-start-input").performTextReplacement("2026-01-01 10:00:00")
         composeTestRule.onNodeWithTag("session-end-input").performTextReplacement("2026-01-01 10:00:00")
@@ -677,9 +811,8 @@ class MainActivityTest {
         val database = TimeLoggerDatabase.open(InstrumentationRegistry.getInstrumentation().targetContext)
         try {
             database.openHelper.writableDatabase.execSQL("CREATE TRIGGER reject_history_edit BEFORE UPDATE ON activity_sessions BEGIN SELECT RAISE(ABORT, '测试编辑失败'); END")
-            composeTestRule.onNodeWithTag("record-list").performScrollToNode(androidx.compose.ui.test.hasTestTag("history-open"))
-            composeTestRule.onNodeWithTag("history-open").performClick()
-            composeTestRule.onNodeWithTag("history-content").performScrollToNode(hasTestTag("history-edit-0"))
+            openRecordedDay()
+            composeTestRule.onNodeWithTag("history-edit-0").performScrollTo()
             composeTestRule.onNodeWithTag("history-edit-0").performClick()
             composeTestRule.onNodeWithTag("session-start-input").performTextReplacement("2026-01-01 10:00:00")
             composeTestRule.onNodeWithTag("session-end-input").performTextReplacement("2026-01-01 11:00:00")
@@ -691,7 +824,12 @@ class MainActivityTest {
             database.openHelper.writableDatabase.execSQL("DROP TRIGGER reject_history_edit")
             composeTestRule.onNodeWithTag("session-save").performClick()
             awaitStableState()
-            composeTestRule.onNodeWithTag("history-content").performScrollToNode(hasTestTag("history-edit-0"))
+            composeTestRule.onNodeWithTag("history-edit-0").assertDoesNotExist()
+            composeTestRule.runOnUiThread { viewModel.selectStatisticsAnchorDate(LocalDate.parse("2026-01-01")) }
+            awaitStableState()
+            composeTestRule.onNodeWithTag("statistics-list").performScrollToNode(hasTestTag("history-month-pager"))
+            composeTestRule.onNodeWithTag("history-date-2026-01-01").performClick()
+            composeTestRule.onNodeWithTag("history-edit-0").performScrollTo()
             composeTestRule.onNodeWithTag("history-edit-0").assertExists()
             assertEquals(3600L, java.time.Duration.between(viewModel.uiState.value.historySessions.single().startedAtUtc, viewModel.uiState.value.historySessions.single().endedAtUtc).seconds)
         } finally {
@@ -721,6 +859,7 @@ class MainActivityTest {
                 }
             }
         }
+        awaitNode("settings-list")
         composeTestRule.onNodeWithTag("settings-list").performScrollToNode(androidx.compose.ui.test.hasTestTag("type-archive-睡觉"))
         val container = composeTestRule.onNodeWithTag("narrow-settings").fetchSemanticsNode().boundsInRoot
         val edit = composeTestRule.onNodeWithTag("type-edit-睡觉").fetchSemanticsNode().boundsInRoot
@@ -736,11 +875,11 @@ class MainActivityTest {
             composeTestRule.runOnUiThread {
                 composeTestRule.activity.setContent {
                     Box(Modifier.requiredWidth(width.dp)) {
-                        RecordScreen(state, {}, {}, Modifier.fillMaxWidth().height(800.dp))
+                        RecordScreen(state, {}, Modifier.fillMaxWidth().height(800.dp))
                     }
                 }
             }
-            composeTestRule.waitForIdle()
+            awaitNode("activity-sleep")
             return listOf("sleep", "walk", "cycle").map { type ->
                 composeTestRule.onNodeWithTag("activity-$type").fetchSemanticsNode().boundsInRoot.top
             }

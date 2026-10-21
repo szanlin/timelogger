@@ -2,11 +2,12 @@ package com.y3lc.timelogger.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.Row
@@ -15,30 +16,34 @@ import androidx.compose.foundation.pager.VerticalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.foundation.shape.RoundedCornerShape
 import com.y3lc.timelogger.domain.time.LocalWallTimeResult
+import com.y3lc.timelogger.domain.time.StatisticsPeriod
 import com.y3lc.timelogger.domain.time.resolveLocalWallTime
 import java.time.DayOfWeek
 import java.time.LocalDate
@@ -47,71 +52,72 @@ import java.time.YearMonth
 import java.time.ZoneId
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
+import kotlinx.coroutines.flow.collect
 
 private val editTimeFormatter = DateTimeFormatter.ofPattern("uuuu-MM-dd HH:mm:ss.SSS")
+private val historyDisplayFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss XXX")
 
 @Composable
-fun HistoryScreen(state: TimeLoggerUiState, onSave: (SessionTimeEdit, (String?) -> Unit) -> Unit, onBack: () -> Unit, modifier: Modifier = Modifier) {
-    var editingId by rememberSaveable { mutableStateOf<String?>(null) }
-    var editingZone by rememberSaveable { mutableStateOf(state.statisticsZoneId.id) }
+fun StatisticsMonthHistory(
+    state: TimeLoggerUiState,
+    onAnchorDateSelected: (LocalDate) -> Unit,
+    selectedDate: LocalDate? = null,
+    onDateSelected: (LocalDate) -> Unit = {},
+) {
+    val colorScheme = MaterialTheme.colorScheme
     val today = LocalDate.now(state.statisticsZoneId)
-    val currentMonth = YearMonth.from(today)
-    val firstMonth = currentMonth.minusMonths(11)
-    val pagerState = rememberPagerState(initialPage = 11, pageCount = { 12 })
-    val editing = state.historySessions.firstOrNull { it.id == editingId }
-    val displayFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss XXX").withZone(state.statisticsZoneId)
-    val activityCells = buildHistoryActivityCells(
-        state.historySessions,
-        today,
-        state.statisticsZoneId,
-        state.firstDayOfWeek,
-    )
-    Column(modifier.fillMaxSize().testTag("history-screen")) {
-        Row(Modifier.fillMaxWidth().height(56.dp), verticalAlignment = Alignment.CenterVertically) {
-            TextButton(onClick = onBack, modifier = Modifier.testTag("history-back")) { Text("返回") }
-            Text("历史记录", style = MaterialTheme.typography.titleLarge)
-        }
-        LazyColumn(
-            modifier = Modifier.weight(1f).testTag("history-content"),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            item { Text("${state.statisticsZoneId.id} · 仅显示已结束记录") }
-            item {
-                VerticalPager(
-                    state = pagerState,
-                    modifier = Modifier.fillMaxWidth().height(320.dp).clip(RoundedCornerShape(14.dp))
-                        .background(Color(0xFF251F1A)).border(1.dp, Color(0xFFF5EBDD), RoundedCornerShape(14.dp))
-                        .testTag("history-month-pager"),
-                ) { page ->
-                    val month = firstMonth.plusMonths(page.toLong())
-                    HistoryCalendarPage(
-                        month = month,
-                        today = today,
-                        firstDayOfWeek = state.firstDayOfWeek,
-                        cells = activityCells.filter { YearMonth.from(it.date) == month },
-                        isCurrentPage = page == pagerState.currentPage,
-                    )
-                }
-            }
-            if (state.historySessions.isEmpty()) item { Text("暂无已结束记录") }
-            itemsIndexed(state.historySessions, key = { _, session -> session.id }) { index, session ->
-                TextButton(
-                    onClick = { editingZone = state.statisticsZoneId.id; editingId = session.id },
-                    enabled = !state.isSaving,
-                    modifier = Modifier.fillMaxWidth().testTag("history-edit-$index"),
-                ) {
-                    Column {
-                        Text(session.name)
-                        Text(displayFormatter.format(session.startedAtUtc))
-                        Text("至 ${displayFormatter.format(session.endedAtUtc)}")
-                    }
-                }
-            }
+    val anchorMonth = YearMonth.from(state.statisticsAnchorDate ?: today)
+    val anchorPage = getMonthPage(anchorMonth)
+    val pagerState = rememberPagerState(initialPage = anchorPage, pageCount = { 9999 * 12 })
+    LaunchedEffect(anchorMonth, pagerState) {
+        pagerState.scrollToPage(anchorPage)
+        snapshotFlow { pagerState.settledPage }.collect { page ->
+            if (page != anchorPage) onAnchorDateSelected(getPageMonth(page).atDay(1))
         }
     }
-    if (editing != null) {
-        SessionEditor(editing, ZoneId.of(editingZone), state.isSaving, onSave) { editingId = null }
+    VerticalPager(
+        state = pagerState,
+        modifier = Modifier.fillMaxWidth().height(320.dp).clip(RoundedCornerShape(14.dp))
+            .background(colorScheme.surfaceContainer).border(1.dp, colorScheme.outlineVariant, RoundedCornerShape(14.dp))
+            .testTag("history-month-pager"),
+    ) { page ->
+        val month = getPageMonth(page)
+        HistoryCalendarPage(
+            month = month,
+            today = today,
+            firstDayOfWeek = state.firstDayOfWeek,
+            cells = buildHistoryMonthActivityCells(state.historySessions, month, state.statisticsZoneId, state.firstDayOfWeek),
+            isCurrentPage = page == pagerState.currentPage,
+            selectedDate = selectedDate,
+            onDateSelected = onDateSelected,
+        )
     }
+}
+
+@Composable
+fun HistoryRecordRow(session: HistorySessionItem, index: Int, zone: ZoneId, enabled: Boolean, onEdit: () -> Unit) {
+    val displayFormatter = historyDisplayFormatter.withZone(zone)
+    Card(
+        onClick = onEdit,
+        enabled = enabled,
+        modifier = Modifier.fillMaxWidth().testTag("history-edit-$index"),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+    ) {
+        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(session.name)
+            Text(displayFormatter.format(session.startedAtUtc))
+            Text("至 ${displayFormatter.format(session.endedAtUtc)}")
+        }
+    }
+}
+
+private fun getMonthPage(month: YearMonth): Int = (month.year - 1) * 12 + month.monthValue - 1
+
+private fun getPageMonth(page: Int): YearMonth = YearMonth.of(page / 12 + 1, page % 12 + 1)
+
+internal fun getSessionsOverlappingDay(sessions: List<HistorySessionItem>, date: LocalDate, zone: ZoneId): List<HistorySessionItem> {
+    val interval = StatisticsPeriod.day(date, zone).interval
+    return sessions.filter { it.startedAtUtc < interval.endExclusive && it.endedAtUtc > interval.start }
 }
 
 @Composable
@@ -121,13 +127,17 @@ private fun HistoryCalendarPage(
     firstDayOfWeek: DayOfWeek,
     cells: List<HistoryActivityCell>,
     isCurrentPage: Boolean,
+    selectedDate: LocalDate?,
+    onDateSelected: (LocalDate) -> Unit,
 ) {
     val cellsByDate = cells.associateBy { it.date }
-    val activeColor = Color(0xFFF4511E)
-    val emptyColor = Color(0xFFB8ADA1)
-    val futureColor = Color(0xFF675F57)
-    val labelColor = Color(0xFFA69B8D)
-    val outlineColor = Color(0xFFF5EBDD)
+    val colorScheme = MaterialTheme.colorScheme
+    val isDark = isSystemInDarkTheme()
+    val activeColor = if (isDark) Color(0xFF674535) else Color(0xFFFFE7D9)
+    val activeBorderColor = if (isDark) Color(0xFFE7AC8A) else Color(0xFFC7663D)
+    val activeTextColor = if (isDark) Color(0xFFFFEADB) else Color(0xFF74371F)
+    val emptyColor = colorScheme.onSurfaceVariant
+    val futureColor = colorScheme.onSurfaceVariant.copy(alpha = 0.55f)
     val firstDayOffset = (month.atDay(1).dayOfWeek.value - firstDayOfWeek.value + 7) % 7
     Column(
         modifier = Modifier.fillMaxWidth().padding(12.dp),
@@ -137,7 +147,7 @@ private fun HistoryCalendarPage(
             Text(
                 "${month.year}年${month.monthValue}月",
                 modifier = if (isCurrentPage) Modifier.testTag("history-month-label") else Modifier,
-                color = outlineColor,
+                color = colorScheme.onSurface,
                 style = MaterialTheme.typography.titleSmall,
                 textAlign = TextAlign.Center,
             )
@@ -149,7 +159,7 @@ private fun HistoryCalendarPage(
                     Text(
                         "一二三四五六日"[dayOfWeek.value - 1].toString(),
                         modifier = if (isCurrentPage) Modifier.testTag("history-weekday-$dayIndex") else Modifier,
-                        color = labelColor,
+                        color = colorScheme.onSurfaceVariant,
                         style = MaterialTheme.typography.labelSmall,
                     )
                 }
@@ -165,22 +175,26 @@ private fun HistoryCalendarPage(
                             val count = cellsByDate[date]?.recordCount ?: 0
                             val isFuture = date.isAfter(today)
                             val description = when {
+                                count > 0 -> "$date，$count 条记录" + if (isFuture) "，未来" else ""
                                 isFuture -> "$date，未来"
-                                count > 0 -> "$date，$count 条记录"
                                 else -> "$date，无记录"
                             }
                             val shape = RoundedCornerShape(9.dp)
                             val modifier = Modifier.size(32.dp)
                                 .clip(shape)
-                                .then(if (count > 0) Modifier.background(activeColor).border(1.dp, outlineColor, shape) else Modifier)
+                                .then(if (count > 0) Modifier.background(activeColor).border(if (date == selectedDate) 2.dp else 1.dp, activeBorderColor, shape) else Modifier)
+                                .then(if (count > 0 && isCurrentPage) Modifier.clickable { onDateSelected(date) } else Modifier)
                                 .then(if (isCurrentPage) Modifier.testTag("history-date-$date") else Modifier)
-                                .semantics(mergeDescendants = true) { contentDescription = description }
+                                .semantics(mergeDescendants = true) {
+                                    contentDescription = description
+                                    if (count > 0) selected = date == selectedDate
+                                }
                             Box(modifier, contentAlignment = Alignment.Center) {
                                 Text(
                                     dayOfMonth.toString(),
                                     color = when {
+                                        count > 0 -> activeTextColor
                                         isFuture -> futureColor
-                                        count > 0 -> outlineColor
                                         else -> emptyColor
                                     },
                                     style = MaterialTheme.typography.bodySmall,
@@ -195,7 +209,7 @@ private fun HistoryCalendarPage(
 }
 
 @Composable
-private fun SessionEditor(session: HistorySessionItem, zone: ZoneId, isSaving: Boolean, onSave: (SessionTimeEdit, (String?) -> Unit) -> Unit, onDismiss: () -> Unit) {
+internal fun SessionEditor(session: HistorySessionItem, zone: ZoneId, isSaving: Boolean, onSave: (SessionTimeEdit, (String?) -> Unit) -> Unit, onDismiss: () -> Unit) {
     var startText by rememberSaveable(session.id) { mutableStateOf(editTimeFormatter.format(session.startedAtUtc.atZone(zone))) }
     var endText by rememberSaveable(session.id) { mutableStateOf(editTimeFormatter.format(session.endedAtUtc.atZone(zone))) }
     var startOffset by rememberSaveable(session.id) { mutableStateOf<String?>(session.startedAtUtc.atZone(zone).offset.id) }
