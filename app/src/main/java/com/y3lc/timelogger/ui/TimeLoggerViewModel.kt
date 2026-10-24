@@ -296,6 +296,7 @@ class TimeLoggerViewModel(
                 today = buildTodaySummary(types, sessions, zone, now),
                 statistics = summaries.getValue(state.statisticsRange),
                 statisticsByRange = summaries,
+                allTimeTypeRanking = buildAllTimeTypeRanking(types, sessions, now),
             )
         }
     }

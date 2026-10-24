@@ -1,7 +1,7 @@
 package com.y3lc.timelogger.ui
 
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.combinedClickable
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -129,24 +130,49 @@ fun StatisticsScreen(
     onSessionDeleted: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    var selectedMode by rememberSaveable { mutableStateOf(StatisticsMode.DATE) }
     var selectedTypeId by rememberSaveable { mutableStateOf<String?>(null) }
     var editingHistoryId by rememberSaveable { mutableStateOf<String?>(null) }
     var editingHistoryZone by rememberSaveable { mutableStateOf(state.statisticsZoneId.id) }
     val month = YearMonth.from(state.statisticsAnchorDate ?: java.time.LocalDate.now(state.statisticsZoneId))
     var selectedHistoryDate by rememberSaveable(month.toString()) { mutableStateOf<String?>(null) }
+    val dateListState = rememberLazyListState()
+    val typeListState = rememberLazyListState()
     val selectedDate = selectedHistoryDate?.let(java.time.LocalDate::parse)
     val daySessions = selectedDate?.let { getSessionsOverlappingDay(state.historySessions, it, state.statisticsZoneId) }.orEmpty()
-    val selectedType = state.statistics.ranking.firstOrNull { it.typeId == selectedTypeId }
+    val selectedType = (state.allTimeTypeRanking + state.statistics.ranking).firstOrNull { it.typeId == selectedTypeId }
     if (selectedType != null) {
         TypeStatisticsPage(selectedType, state.statisticsByRange, state.statisticsRange, state.statisticsAnchorDate, state.statisticsZoneId, onAnchorDateSelected, onSessionDeleted, {
             selectedTypeId = null
         }, modifier)
         return
     }
-    LazyColumn(modifier.testTag("statistics-list"), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+    if (selectedMode == StatisticsMode.TYPE) {
+        val totalDuration = state.allTimeTypeRanking.fold(Duration.ZERO) { total, type -> total.plus(type.duration) }
+        LazyColumn(modifier.testTag("statistics-type-list"), state = typeListState, verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            item {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("统计", modifier = Modifier.testTag("screen-title"), style = MaterialTheme.typography.headlineMedium)
+                    StatisticsModeSelector(selectedMode) { selectedMode = it }
+                    Text("全部记录 · 类型累计排行", style = MaterialTheme.typography.titleMedium)
+                    Text("并行活动分别累计", style = MaterialTheme.typography.bodySmall)
+                }
+            }
+            if (state.allTimeTypeRanking.isEmpty()) {
+                item { Text("暂无活动类型，请前往设置创建首个类型", modifier = Modifier.testTag("statistics-type-empty")) }
+            } else {
+                items(state.allTimeTypeRanking, key = TypeRanking::typeId) { type ->
+                    TypeRankingCard(type, totalDuration, { selectedTypeId = type.typeId }, if (type.duration.isZero) "暂无记录" else null)
+                }
+            }
+        }
+        return
+    }
+    LazyColumn(modifier.testTag("statistics-list"), state = dateListState, verticalArrangement = Arrangement.spacedBy(16.dp)) {
         item {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("统计", modifier = Modifier.testTag("screen-title"), style = MaterialTheme.typography.headlineMedium)
+                StatisticsModeSelector(selectedMode) { selectedMode = it }
                 SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
                     StatisticsRange.entries.forEachIndexed { index, range ->
                         SegmentedButton(
@@ -189,22 +215,7 @@ fun StatisticsScreen(
             }
             item { Text("类型累计排行", style = MaterialTheme.typography.titleMedium) }
             items(state.statistics.ranking, key = { it.typeId }) { type ->
-                Card(
-                    onClick = { selectedTypeId = type.typeId },
-                    modifier = Modifier.fillMaxWidth().testTag("statistics-type-${type.typeId}"),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
-                ) {
-                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Canvas(Modifier.size(10.dp)) { drawCircle(Color(type.colorArgb)) }
-                            Text(type.name, modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
-                            Text(formatDuration(type.duration), style = MaterialTheme.typography.titleSmall)
-                        }
-                        val fraction = (type.duration.toMillis().toDouble() / state.statistics.totalDuration.toMillis().coerceAtLeast(1)).toFloat()
-                        LinearProgressIndicator(progress = { fraction }, color = Color(type.colorArgb), modifier = Modifier.fillMaxWidth())
-                        Text("占类型累计 ${"%.1f".format(fraction * 100)}%", style = MaterialTheme.typography.labelSmall)
-                    }
-                }
+                TypeRankingCard(type, state.statistics.totalDuration, { selectedTypeId = type.typeId })
             }
             if (state.statisticsRange == StatisticsRange.DAY) {
                 item {
@@ -225,6 +236,43 @@ fun StatisticsScreen(
     }
 }
 
+private enum class StatisticsMode { DATE, TYPE }
+
+@Composable
+private fun StatisticsModeSelector(selectedMode: StatisticsMode, onModeSelected: (StatisticsMode) -> Unit) {
+    SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+        StatisticsMode.entries.forEachIndexed { index, mode ->
+            SegmentedButton(
+                selected = selectedMode == mode,
+                onClick = { onModeSelected(mode) },
+                shape = SegmentedButtonDefaults.itemShape(index, StatisticsMode.entries.size),
+                modifier = Modifier.weight(1f).testTag("statistics-mode-${mode.name.lowercase()}"),
+                label = { Text(if (mode == StatisticsMode.DATE) "按日期" else "按类型") },
+            )
+        }
+    }
+}
+
+@Composable
+private fun TypeRankingCard(type: TypeRanking, totalDuration: Duration, onClick: () -> Unit, emptyLabel: String? = null) {
+    Card(
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth().testTag("statistics-type-${type.typeId}"),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+    ) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Canvas(Modifier.size(10.dp)) { drawCircle(Color(type.colorArgb)) }
+                Text(type.name, modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
+                Text(formatDuration(type.duration), style = MaterialTheme.typography.titleSmall)
+            }
+            val fraction = (type.duration.toMillis().toDouble() / totalDuration.toMillis().coerceAtLeast(1)).toFloat()
+            LinearProgressIndicator(progress = { fraction }, color = Color(type.colorArgb), modifier = Modifier.fillMaxWidth())
+            Text(emptyLabel ?: "占类型累计 ${"%.1f".format(fraction * 100)}%", style = MaterialTheme.typography.labelSmall)
+        }
+    }
+}
+
 @Composable
 @OptIn(ExperimentalMaterial3Api::class)
 private fun TypeStatisticsPage(
@@ -238,6 +286,7 @@ private fun TypeStatisticsPage(
     onBack: () -> Unit,
     modifier: Modifier,
 ) {
+    BackHandler(onBack = onBack)
     var range by rememberSaveable(type.typeId) { mutableStateOf(initialRange) }
     val summary = summaries.getValue(range)
     val currentType = summary.ranking.firstOrNull { it.typeId == type.typeId } ?: type.copy(duration = Duration.ZERO)
@@ -271,7 +320,7 @@ private fun TypeStatisticsPage(
     }
     Column(modifier.fillMaxSize().testTag("statistics-type-page")) {
         Row(Modifier.fillMaxWidth().height(48.dp), verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = onBack, modifier = Modifier.testTag("statistics-type-page-back")) { Text("<", style = MaterialTheme.typography.headlineMedium) }
+            IconButton(onClick = onBack, modifier = Modifier.testTag("statistics-type-page-back").semantics { contentDescription = "返回统计列表" }) { Text("<", style = MaterialTheme.typography.headlineMedium) }
             Text("${type.name}统计", modifier = Modifier.testTag("statistics-type-page-title"), style = MaterialTheme.typography.titleLarge)
         }
         SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
@@ -296,6 +345,9 @@ private fun TypeStatisticsPage(
                     }
                 }
             }
+            if (sessions.isEmpty() && currentType.duration.isZero) {
+                item { Text("这个周期没有记录", modifier = Modifier.testTag("statistics-type-period-empty")) }
+            }
             if (range == StatisticsRange.DAY) {
                 items(sessions, key = TimelineItem::sessionId) { session ->
                     val duration = Duration.between(session.interval.start, session.interval.endExclusive)
@@ -304,8 +356,8 @@ private fun TypeStatisticsPage(
                         duration = duration,
                         maxMillis = maxDuration,
                         color = Color(currentType.colorArgb),
-                        modifier = (if (session.isRunning) Modifier else Modifier.combinedClickable(onClick = {}, onLongClick = { deleteSessionId = session.sessionId }))
-                            .testTag("statistics-type-record-bar"),
+                        modifier = Modifier.testTag("statistics-type-record-bar"),
+                        onDelete = if (session.isRunning) null else { { deleteSessionId = session.sessionId } },
                     )
                 }
             } else {
@@ -354,7 +406,7 @@ private fun StatisticsPeriodNavigator(
 }
 
 @Composable
-private fun TypeStatisticsBar(title: String, duration: Duration, maxMillis: Long, color: Color, modifier: Modifier) {
+private fun TypeStatisticsBar(title: String, duration: Duration, maxMillis: Long, color: Color, modifier: Modifier, onDelete: (() -> Unit)? = null) {
     Card(modifier = modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -366,6 +418,9 @@ private fun TypeStatisticsBar(title: String, duration: Duration, maxMillis: Long
                 color = color,
                 modifier = Modifier.fillMaxWidth(),
             )
+            if (onDelete != null) {
+                TextButton(onClick = onDelete, modifier = Modifier.testTag("statistics-type-record-delete")) { Text("删除记录") }
+            }
         }
     }
 }

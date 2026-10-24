@@ -61,8 +61,8 @@ fun SettingsScreen(
 ) {
     var useFixedZone by rememberSaveable { mutableStateOf(state.fixedStatisticsZoneId != null) }
     var zoneInput by rememberSaveable { mutableStateOf(state.fixedStatisticsZoneId.orEmpty()) }
-    var editingType by remember { mutableStateOf<ActivityTypeItem?>(null) }
-    var showEditor by remember { mutableStateOf(false) }
+    var editingTypeId by rememberSaveable { mutableStateOf<String?>(null) }
+    var showEditor by rememberSaveable { mutableStateOf(false) }
     var archivingType by remember { mutableStateOf<ActivityTypeItem?>(null) }
     LaunchedEffect(state.fixedStatisticsZoneId) {
         useFixedZone = state.fixedStatisticsZoneId != null
@@ -135,7 +135,7 @@ fun SettingsScreen(
                 Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                     Text("活动类型", style = MaterialTheme.typography.titleLarge)
                     TextButton(onClick = {
-                        editingType = null
+                        editingTypeId = null
                         showEditor = true
                     }, enabled = !state.isSaving, modifier = Modifier.heightIn(min = 48.dp).testTag("type-add")) { Text("新增类型") }
                 }
@@ -156,7 +156,7 @@ fun SettingsScreen(
                     } else {
                         Text(if (type.isRunning) "进行中" else "可用", style = MaterialTheme.typography.labelMedium)
                         FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            TextButton(onClick = { editingType = type; showEditor = true }, enabled = !state.isSaving, modifier = Modifier.heightIn(min = 48.dp).testTag("type-edit-${type.name}")) { Text("编辑") }
+                            TextButton(onClick = { editingTypeId = type.id; showEditor = true }, enabled = !state.isSaving, modifier = Modifier.heightIn(min = 48.dp).testTag("type-edit-${type.name}")) { Text("编辑") }
                             TextButton(onClick = { onTypeMoved(type.id, -1) }, enabled = index > 0 && !state.isSaving, modifier = Modifier.heightIn(min = 48.dp).testTag("type-move-up-${type.name}")) { Text("上移") }
                             TextButton(onClick = { onTypeMoved(type.id, 1) }, enabled = index >= 0 && index < activeTypes.lastIndex && !state.isSaving, modifier = Modifier.heightIn(min = 48.dp).testTag("type-move-down-${type.name}")) { Text("下移") }
                             TextButton(onClick = { archivingType = type }, enabled = !state.isSaving, modifier = Modifier.heightIn(min = 48.dp).testTag("type-archive-${type.name}")) { Text("归档") }
@@ -168,12 +168,13 @@ fun SettingsScreen(
     }
 
     if (showEditor) {
+        val editingType = state.managedActivityTypes.firstOrNull { it.id == editingTypeId }
         TypeEditorDialog(
             type = editingType,
             enabled = !state.isSaving,
             onDismiss = { showEditor = false },
             onSave = { name, iconKey, colorArgb, onResult ->
-                val id = editingType?.id
+                val id = editingTypeId
                 if (id == null) onTypeCreated(name, iconKey, colorArgb, onResult)
                 else onTypeUpdated(id, name, iconKey, colorArgb, onResult)
             },
@@ -197,10 +198,10 @@ fun SettingsScreen(
 
 @Composable
 private fun TypeEditorDialog(type: ActivityTypeItem?, enabled: Boolean, onDismiss: () -> Unit, onSave: (String, String, Long, (TypeSaveResult) -> Unit) -> Unit) {
-    var name by remember(type?.id) { mutableStateOf(type?.name.orEmpty()) }
-    var iconKey by remember(type?.id) { mutableStateOf(type?.iconKey ?: "meeting") }
-    var colorArgb by remember(type?.id) { mutableStateOf(type?.colorArgb ?: typeColors.first()) }
-    var saveError by remember(type?.id) { mutableStateOf<String?>(null) }
+    var name by rememberSaveable(type?.id) { mutableStateOf(type?.name.orEmpty()) }
+    var iconKey by rememberSaveable(type?.id) { mutableStateOf(type?.iconKey ?: "meeting") }
+    var colorArgb by rememberSaveable(type?.id) { mutableStateOf(type?.colorArgb ?: typeColors.first()) }
+    var saveError by rememberSaveable(type?.id) { mutableStateOf<String?>(null) }
     AlertDialog(
         onDismissRequest = { if (enabled) onDismiss() },
         title = { Text(if (type == null) "新增类型" else "编辑类型") },

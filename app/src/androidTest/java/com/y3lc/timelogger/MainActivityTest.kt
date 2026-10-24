@@ -355,6 +355,7 @@ class MainActivityTest {
         composeTestRule.onAllNodesWithTag("timeline-track").assertCountEquals(0)
 
         composeTestRule.onNodeWithTag("nav-statistics").performClick()
+        composeTestRule.onNodeWithTag("statistics-list").performScrollToNode(hasTestTag("statistics-duration-summary"))
         composeTestRule.onNodeWithTag("statistics-duration-summary").assertExists()
         composeTestRule.onNodeWithText("覆盖时长").assertExists()
         composeTestRule.onNodeWithTag("statistics-list").performScrollToNode(hasTestTag("timeline-track"))
@@ -404,8 +405,102 @@ class MainActivityTest {
             }
             composeTestRule.onNodeWithTag("statistics-type-page-back").performClick()
             awaitNode("statistics-list")
+            composeTestRule.onNodeWithTag("statistics-list").performScrollToNode(hasTestTag("statistics-period-label"))
             composeTestRule.onNodeWithTag("statistics-period-label").assertTextEquals(viewModel.uiState.value.statistics.dateLabel)
         }
+    }
+
+    @Test
+    fun statisticsModeSwitchKeepsDateRangeAndReturnsToTypeList() {
+        composeTestRule.onNodeWithTag("nav-statistics").performClick()
+        awaitNode("statistics-mode-date")
+        composeTestRule.onNodeWithTag("statistics-mode-date").assertIsSelected()
+        composeTestRule.onNodeWithTag("period-week").performClick()
+        awaitStableState()
+        val dateLabel = viewModel.uiState.value.statistics.dateLabel
+
+        composeTestRule.onNodeWithTag("statistics-mode-type").performClick()
+        composeTestRule.onNodeWithTag("statistics-type-list").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("statistics-type-list").performScrollToNode(hasTestTag("statistics-type-walk"))
+        composeTestRule.onNodeWithTag("statistics-type-walk").performClick()
+        composeTestRule.onNodeWithTag("statistics-type-page-title").assertTextEquals("走路统计")
+        composeTestRule.onNodeWithTag("statistics-type-period-empty").assertExists()
+        composeTestRule.onNodeWithTag("statistics-type-page-back").performClick()
+        composeTestRule.onNodeWithTag("statistics-type-list").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("statistics-mode-type").assertIsSelected()
+
+        composeTestRule.onNodeWithTag("statistics-mode-date").performClick()
+        composeTestRule.onNodeWithTag("statistics-list").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("period-week").assertIsSelected()
+        composeTestRule.onNodeWithTag("statistics-period-label").assertTextEquals(dateLabel)
+    }
+
+    @Test
+    fun systemBackReturnsFromTypeDetailsToTypeList() {
+        composeTestRule.onNodeWithTag("nav-statistics").performClick()
+        composeTestRule.onNodeWithTag("statistics-mode-type").performClick()
+        composeTestRule.onNodeWithTag("statistics-type-list").performScrollToNode(hasTestTag("statistics-type-walk"))
+        composeTestRule.onNodeWithTag("statistics-type-walk").performClick()
+        composeTestRule.onNodeWithTag("statistics-type-page-back").assertContentDescriptionContains("返回统计列表")
+
+        composeTestRule.runOnUiThread { composeTestRule.activity.onBackPressedDispatcher.onBackPressed() }
+
+        composeTestRule.onNodeWithTag("statistics-type-list").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("statistics-mode-type").assertIsSelected()
+    }
+
+    @Test
+    fun statisticsDetailAndModeSurviveTabSwitch() {
+        composeTestRule.onNodeWithTag("nav-statistics").performClick()
+        composeTestRule.onNodeWithTag("statistics-mode-type").performClick()
+        composeTestRule.onNodeWithTag("statistics-type-list").performScrollToNode(hasTestTag("statistics-type-walk"))
+        composeTestRule.onNodeWithTag("statistics-type-walk").performClick()
+        composeTestRule.onNodeWithTag("nav-record").performClick()
+        composeTestRule.onNodeWithTag("nav-statistics").performClick()
+        composeTestRule.onNodeWithTag("statistics-type-page-title").assertTextEquals("走路统计")
+
+        composeTestRule.onNodeWithTag("statistics-type-page-back").performClick()
+        composeTestRule.onNodeWithTag("nav-record").performClick()
+        composeTestRule.onNodeWithTag("nav-statistics").performClick()
+        composeTestRule.onNodeWithTag("statistics-type-list").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("statistics-mode-type").assertIsSelected()
+    }
+
+    @Test
+    fun statisticsScrollPositionSurvivesTabSwitch() {
+        composeTestRule.onNodeWithTag("activity-walk").performClick()
+        awaitStableState()
+        composeTestRule.onNodeWithTag("activity-walk").performClick()
+        awaitStableState()
+        composeTestRule.onNodeWithTag("nav-statistics").performClick()
+        composeTestRule.onNodeWithTag("period-month").performClick()
+        awaitStableState()
+        composeTestRule.onNodeWithTag("statistics-list").performScrollToNode(hasTestTag("statistics-type-walk"))
+        val before = composeTestRule.onNodeWithTag("statistics-list").fetchSemanticsNode()
+            .config[SemanticsProperties.VerticalScrollAxisRange].value()
+        assertTrue(before > 0f)
+
+        composeTestRule.onNodeWithTag("nav-record").performClick()
+        composeTestRule.onNodeWithTag("nav-statistics").performClick()
+        val after = composeTestRule.onNodeWithTag("statistics-list").fetchSemanticsNode()
+            .config[SemanticsProperties.VerticalScrollAxisRange].value()
+        assertEquals(before, after, 1f)
+    }
+
+    @Test
+    fun completedTypeRecordHasVisibleDeleteAction() {
+        composeTestRule.onNodeWithTag("activity-walk").performClick()
+        awaitStableState()
+        composeTestRule.onNodeWithTag("activity-walk").performClick()
+        awaitStableState()
+        composeTestRule.onNodeWithTag("nav-statistics").performClick()
+        composeTestRule.onNodeWithTag("statistics-type-walk").performClick()
+
+        composeTestRule.onNodeWithTag("statistics-type-record-delete").performClick()
+        composeTestRule.onNodeWithTag("statistics-type-delete-confirm").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("statistics-type-delete-confirm").performClick()
+        awaitStableState()
+        composeTestRule.onNodeWithTag("statistics-type-session-count").assertTextEquals("记录次数 0")
     }
 
     @Test

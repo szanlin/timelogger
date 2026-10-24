@@ -97,7 +97,24 @@ data class TimeLoggerUiState(
     val today: PeriodSummary = PeriodSummary(),
     val statistics: PeriodSummary = PeriodSummary(),
     val statisticsByRange: Map<StatisticsRange, PeriodSummary> = emptyMap(),
+    val allTimeTypeRanking: List<TypeRanking> = emptyList(),
 )
+
+fun buildAllTimeTypeRanking(types: List<ActivityType>, sessions: List<ActivitySession>, nowUtc: Instant): List<TypeRanking> {
+    val durationByTypeId = mutableMapOf<String, Duration>()
+    sessions.forEach { session ->
+        val end = minOf(session.endedAtUtc ?: nowUtc, nowUtc)
+        if (session.startedAtUtc < end) {
+            durationByTypeId[session.activityTypeId] =
+                (durationByTypeId[session.activityTypeId] ?: Duration.ZERO).plus(Duration.between(session.startedAtUtc, end))
+        }
+    }
+    return types.asSequence()
+        .filter { !it.isArchived || it.id in durationByTypeId }
+        .map { TypeRanking(it.id, it.name, it.colorArgb, durationByTypeId[it.id] ?: Duration.ZERO) }
+        .sortedWith(compareByDescending<TypeRanking> { it.duration }.thenBy { it.typeId })
+        .toList()
+}
 
 fun mapActivityTypes(types: List<ActivityType>, sessions: List<ActivitySession>): List<ActivityTypeItem> {
     val runningTypeIds = sessions.filter { it.endedAtUtc == null }.mapTo(mutableSetOf()) { it.activityTypeId }

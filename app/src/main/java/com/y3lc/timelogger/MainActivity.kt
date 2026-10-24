@@ -17,6 +17,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -144,6 +145,7 @@ private fun MainScreen(
     onSessionSaved: (SessionTimeEdit, (String?) -> Unit) -> Unit,
     onSessionDeleted: (String) -> Unit,
 ) {
+    val tabStateHolder = rememberSaveableStateHolder()
     AppPageContainer(Modifier.padding(padding)) {
         if (uiState.isLoading) {
             CircularProgressIndicator()
@@ -153,19 +155,21 @@ private fun MainScreen(
             TextButton(onClick = onRetry, enabled = !uiState.isSaving, modifier = Modifier.testTag("retry")) { Text("重试") }
         }
         if (!uiState.isLoading) {
-            when (uiState.selectedTab) {
-                MainTab.RECORD -> RecordScreen(uiState, onToggle, Modifier.weight(1f).padding(top = 16.dp))
-                MainTab.STATISTICS -> StatisticsScreen(uiState, onRangeSelected, onAnchorDateSelected, onSessionSaved, onSessionDeleted, Modifier.weight(1f).padding(top = 16.dp))
-                MainTab.SETTINGS -> SettingsScreen(
-                    uiState,
-                    onZoneSaved,
-                    onWeekStartChanged,
-                    onTypeCreated,
-                    onTypeUpdated,
-                    onTypeMoved,
-                    onTypeArchived,
-                    Modifier.weight(1f).padding(top = 16.dp),
-                )
+            tabStateHolder.SaveableStateProvider(uiState.selectedTab.name) {
+                when (uiState.selectedTab) {
+                    MainTab.RECORD -> RecordScreen(uiState, onToggle, Modifier.weight(1f).padding(top = 16.dp))
+                    MainTab.STATISTICS -> StatisticsScreen(uiState, onRangeSelected, onAnchorDateSelected, onSessionSaved, onSessionDeleted, Modifier.weight(1f).padding(top = 16.dp))
+                    MainTab.SETTINGS -> SettingsScreen(
+                        uiState,
+                        onZoneSaved,
+                        onWeekStartChanged,
+                        onTypeCreated,
+                        onTypeUpdated,
+                        onTypeMoved,
+                        onTypeArchived,
+                        Modifier.weight(1f).padding(top = 16.dp),
+                    )
+                }
             }
         }
     }

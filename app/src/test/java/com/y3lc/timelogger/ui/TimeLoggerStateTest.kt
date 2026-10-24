@@ -17,6 +17,55 @@ class TimeLoggerStateTest {
     private val now = Instant.parse("2026-10-02T00:00:00Z")
 
     @Test
+    fun allTimeTypesAccumulateAcrossDatesAndCountParallelSessionsSeparately() {
+        val sessions = listOf(
+            activitySession("walk").copy(id = "first", startedAtUtc = Instant.parse("2026-09-30T23:00:00Z"), endedAtUtc = Instant.parse("2026-10-01T01:00:00Z")),
+            activitySession("walk").copy(id = "second", startedAtUtc = Instant.parse("2026-10-01T23:00:00Z"), endedAtUtc = Instant.parse("2026-10-02T00:00:00Z")),
+            activitySession("sleep").copy(id = "parallel", startedAtUtc = Instant.parse("2026-09-30T23:30:00Z"), endedAtUtc = Instant.parse("2026-10-01T00:30:00Z")),
+        )
+
+        val ranking = buildAllTimeTypeRanking(
+            listOf(activityType("walk", "走路", 0), activityType("sleep", "睡觉", 1)), sessions, now,
+        )
+
+        assertEquals(listOf("walk", "sleep"), ranking.map { it.typeId })
+        assertEquals(listOf(Duration.ofHours(3), Duration.ofHours(1)), ranking.map { it.duration })
+    }
+
+    @Test
+    fun allTimeTypesIncludeRunningActiveEmptyAndArchivedWithHistory() {
+        val types = listOf(
+            activityType("walk", "走路", 0),
+            activityType("sleep", "睡觉", 1),
+            activityType("archived", "旧类型", 2, isArchived = true),
+            activityType("unused", "无历史归档", 3, isArchived = true),
+        )
+        val sessions = listOf(
+            activitySession("walk").copy(startedAtUtc = Instant.parse("2026-10-01T22:30:00Z"), endedAtUtc = null),
+            activitySession("archived").copy(startedAtUtc = Instant.parse("2026-09-01T00:00:00Z"), endedAtUtc = Instant.parse("2026-09-01T01:00:00Z")),
+        )
+
+        val ranking = buildAllTimeTypeRanking(types, sessions, now)
+
+        assertEquals(listOf("walk", "archived", "sleep"), ranking.map { it.typeId })
+        assertEquals(listOf(Duration.ofMinutes(90), Duration.ofHours(1), Duration.ZERO), ranking.map { it.duration })
+        assertEquals("旧类型", ranking[1].name)
+        assertEquals(types[2].colorArgb, ranking[1].colorArgb)
+    }
+
+    @Test
+    fun allTimeTypesIgnoreFutureStartsAndClipFutureEndsToNow() {
+        val sessions = listOf(
+            activitySession("walk").copy(id = "future", startedAtUtc = now.plusSeconds(60), endedAtUtc = null),
+            activitySession("walk").copy(id = "ongoing", startedAtUtc = now.minusSeconds(1800), endedAtUtc = now.plusSeconds(3600)),
+        )
+
+        val ranking = buildAllTimeTypeRanking(listOf(activityType("walk", "走路", 0)), sessions, now)
+
+        assertEquals(Duration.ofMinutes(30), ranking.single().duration)
+    }
+
+    @Test
     fun clipsTodayTimelineAndSeparatesCoverageFromParallelTotals() {
         val sessions = listOf(
             activitySession("walk").copy(startedAtUtc = Instant.parse("2026-10-01T15:00:00Z"), endedAtUtc = Instant.parse("2026-10-01T18:00:00Z")),

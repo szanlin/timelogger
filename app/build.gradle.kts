@@ -23,8 +23,8 @@ android {
         applicationId = "com.y3lc.timelogger"
         minSdk = 24
         targetSdk = 37
-        versionCode = 4
-        versionName = "1.4"
+        versionCode = 5
+        versionName = "1.5"
 
         testInstrumentationRunner = "com.y3lc.timelogger.IsolatedTestRunner"
     }

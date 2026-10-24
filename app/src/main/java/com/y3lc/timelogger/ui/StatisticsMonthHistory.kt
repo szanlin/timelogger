@@ -3,15 +3,18 @@ package com.y3lc.timelogger.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.pager.VerticalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
@@ -77,7 +80,7 @@ fun StatisticsMonthHistory(
     }
     VerticalPager(
         state = pagerState,
-        modifier = Modifier.fillMaxWidth().height(320.dp).clip(RoundedCornerShape(14.dp))
+        modifier = Modifier.fillMaxWidth().height(400.dp).clip(RoundedCornerShape(14.dp))
             .background(colorScheme.surfaceContainer).border(1.dp, colorScheme.outlineVariant, RoundedCornerShape(14.dp))
             .testTag("history-month-pager"),
     ) { page ->
@@ -139,66 +142,75 @@ private fun HistoryCalendarPage(
     val emptyColor = colorScheme.onSurfaceVariant
     val futureColor = colorScheme.onSurfaceVariant.copy(alpha = 0.55f)
     val firstDayOffset = (month.atDay(1).dayOfWeek.value - firstDayOfWeek.value + 7) % 7
-    Column(
-        modifier = Modifier.fillMaxWidth().padding(12.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-            Text(
-                "${month.year}年${month.monthValue}月",
-                modifier = if (isCurrentPage) Modifier.testTag("history-month-label") else Modifier,
-                color = colorScheme.onSurface,
-                style = MaterialTheme.typography.titleSmall,
-                textAlign = TextAlign.Center,
-            )
-        }
-        Row(Modifier.fillMaxWidth()) {
-            (0..6).forEach { dayIndex ->
-                val dayOfWeek = DayOfWeek.of((firstDayOfWeek.value - 1 + dayIndex) % 7 + 1)
-                Box(Modifier.weight(1f).height(20.dp), contentAlignment = Alignment.Center) {
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val calendarWidth = maxWidth.coerceAtLeast(360.dp)
+        Box(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).testTag("history-month-horizontal-scroll")) {
+            Column(
+                modifier = Modifier.width(calendarWidth).padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
                     Text(
-                        "一二三四五六日"[dayOfWeek.value - 1].toString(),
-                        modifier = if (isCurrentPage) Modifier.testTag("history-weekday-$dayIndex") else Modifier,
-                        color = colorScheme.onSurfaceVariant,
-                        style = MaterialTheme.typography.labelSmall,
+                        "${month.year}年${month.monthValue}月",
+                        modifier = if (isCurrentPage) Modifier.testTag("history-month-label") else Modifier,
+                        color = colorScheme.onSurface,
+                        style = MaterialTheme.typography.titleSmall,
+                        textAlign = TextAlign.Center,
                     )
                 }
-            }
-        }
-        repeat(6) { weekIndex ->
-            Row(Modifier.fillMaxWidth()) {
-                (0..6).forEach { dayIndex ->
-                    val dayOfMonth = weekIndex * 7 + dayIndex - firstDayOffset + 1
-                    Box(Modifier.weight(1f).height(32.dp), contentAlignment = Alignment.Center) {
-                        if (dayOfMonth in 1..month.lengthOfMonth()) {
-                            val date = month.atDay(dayOfMonth)
-                            val count = cellsByDate[date]?.recordCount ?: 0
-                            val isFuture = date.isAfter(today)
-                            val description = when {
-                                count > 0 -> "$date，$count 条记录" + if (isFuture) "，未来" else ""
-                                isFuture -> "$date，未来"
-                                else -> "$date，无记录"
-                            }
-                            val shape = RoundedCornerShape(9.dp)
-                            val modifier = Modifier.size(32.dp)
-                                .clip(shape)
-                                .then(if (count > 0) Modifier.background(activeColor).border(if (date == selectedDate) 2.dp else 1.dp, activeBorderColor, shape) else Modifier)
-                                .then(if (count > 0 && isCurrentPage) Modifier.clickable { onDateSelected(date) } else Modifier)
-                                .then(if (isCurrentPage) Modifier.testTag("history-date-$date") else Modifier)
-                                .semantics(mergeDescendants = true) {
-                                    contentDescription = description
-                                    if (count > 0) selected = date == selectedDate
+                Row(Modifier.fillMaxWidth()) {
+                    (0..6).forEach { dayIndex ->
+                        val dayOfWeek = DayOfWeek.of((firstDayOfWeek.value - 1 + dayIndex) % 7 + 1)
+                        Box(Modifier.weight(1f).height(20.dp), contentAlignment = Alignment.Center) {
+                            Text(
+                                "一二三四五六日"[dayOfWeek.value - 1].toString(),
+                                modifier = if (isCurrentPage) Modifier.testTag("history-weekday-$dayIndex") else Modifier,
+                                color = colorScheme.onSurfaceVariant,
+                                style = MaterialTheme.typography.labelSmall,
+                            )
+                        }
+                    }
+                }
+                repeat(6) { weekIndex ->
+                    Row(Modifier.fillMaxWidth()) {
+                        (0..6).forEach { dayIndex ->
+                            val dayOfMonth = weekIndex * 7 + dayIndex - firstDayOffset + 1
+                            Box(Modifier.weight(1f).height(48.dp), contentAlignment = Alignment.Center) {
+                                if (dayOfMonth in 1..month.lengthOfMonth()) {
+                                    val date = month.atDay(dayOfMonth)
+                                    val count = cellsByDate[date]?.recordCount ?: 0
+                                    val isFuture = date.isAfter(today)
+                                    val description = when {
+                                        count > 0 -> "$date，$count 条记录" + if (isFuture) "，未来" else ""
+                                        isFuture -> "$date，未来"
+                                        else -> "$date，无记录"
+                                    }
+                                    val shape = RoundedCornerShape(9.dp)
+                                    val modifier = Modifier.fillMaxWidth().height(48.dp)
+                                        .then(if (count > 0 && isCurrentPage) Modifier.clickable { onDateSelected(date) } else Modifier)
+                                        .then(if (isCurrentPage) Modifier.testTag("history-date-$date") else Modifier)
+                                        .semantics(mergeDescendants = true) {
+                                            contentDescription = description
+                                            if (count > 0) selected = date == selectedDate
+                                        }
+                                    Box(modifier, contentAlignment = Alignment.Center) {
+                                        Box(
+                                            Modifier.size(32.dp).clip(shape)
+                                                .then(if (count > 0) Modifier.background(activeColor).border(if (date == selectedDate) 2.dp else 1.dp, activeBorderColor, shape) else Modifier),
+                                            contentAlignment = Alignment.Center,
+                                        ) {
+                                            Text(
+                                                dayOfMonth.toString(),
+                                                color = when {
+                                                    count > 0 -> activeTextColor
+                                                    isFuture -> futureColor
+                                                    else -> emptyColor
+                                                },
+                                                style = MaterialTheme.typography.bodySmall,
+                                            )
+                                        }
+                                    }
                                 }
-                            Box(modifier, contentAlignment = Alignment.Center) {
-                                Text(
-                                    dayOfMonth.toString(),
-                                    color = when {
-                                        count > 0 -> activeTextColor
-                                        isFuture -> futureColor
-                                        else -> emptyColor
-                                    },
-                                    style = MaterialTheme.typography.bodySmall,
-                                )
                             }
                         }
                     }
